@@ -397,6 +397,27 @@ class _MapViewState extends State<MapView> {
     }
   }
 
+  /// True when the signed-in traveller is allowed to add/move a memory
+  /// at [location], or (when [forDelete] is true) to delete it.
+  /// The owner can always manage their own locations; for deletion,
+  /// an admin can also step in (moderation), even on locations they
+  /// don't own.
+  bool canManageLocation(
+    Location location,
+    SocialController social, {
+    bool forDelete = false,
+  }) {
+    final currentUserId = social.myProfile?.id;
+    if (currentUserId == null) return false;
+
+    final isOwner = location.userId == currentUserId;
+    if (isOwner) return true;
+
+    if (forDelete && social.isCurrentUserAdmin) return true;
+
+    return false;
+  }
+
   // ---------------------------------------------------------------------
   // Menu contestuale pin
   // ---------------------------------------------------------------------
