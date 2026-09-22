@@ -1,0 +1,33 @@
+[[plugins]]
+  package = "netlify-plugin-flutter"
+  [plugins.inputs]
+    channel = "stable"
+
+[build]
+  publish = "build/web"
+  command = "flutter build web --release"
+
+# Gestione routing SPA per evitare errori 404 sui refresh
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+# Header ottimali per performance web e cache degli asset Flutter
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-XSS-Protection = "1; mode=block"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/canvaskit/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"

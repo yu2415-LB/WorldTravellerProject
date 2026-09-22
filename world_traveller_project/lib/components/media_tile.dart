@@ -1,0 +1,219 @@
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'package:world_traveller_project/models/media.dart';
+import 'package:world_traveller_project/providers/social_controller.dart';
+
+/// A single responsive picture thumbnail.
+/// Shows images coming from a Supabase URL or from bytes held in memory.
+class MediaTile extends StatefulWidget {
+  final Media media;
+  final bool isSelected;
+  final bool isSelecting;
+  final VoidCallback onSelectionChanged;
+  final VoidCallback? onTap;
+
+  /// Shows the heart button in the top-left corner.
+  final bool showFavouriteButton;
+
+  /// Shows the uploader's name along the bottom edge.
+  final bool showAuthor;
+
+  /// Called when the author's name is tapped, to open that traveller's page.
+  final void Function(String userId)? onAuthorTap;
+
+  const MediaTile({
+    super.key,
+    required this.media,
+    required this.isSelected,
+    required this.isSelecting,
+    required this.onSelectionChanged,
+    this.onTap,
+    this.showFavouriteButton = true,
+    this.showAuthor = true,
+    this.onAuthorTap,
+  });
+
+  @override
+  State<MediaTile> createState() => _MediaTileState();
+}
+
+class _MediaTileState extends State<MediaTile> {
+  bool _isHovered = false;
+
+  Future<void> _toggleFavourite() async {
+    final social = context.read<SocialController>();
+    final result = await social.toggleFavourite(widget.media.id);
+
+    if (!mounted) return;
+
+    if (result == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Sign in to save pictures to your favourites.')),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _isHovered = true),
+      onExit: (_) => setState(() => _isHovered = false),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(14),
+        child: Container(
+          color: Theme.of(context).colorScheme.surfaceContainerHighest,
+          child: InkWell(
+            onTap: widget.onTap,
+            child: _buildContent(context),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildContent(BuildContext context) {
+    final media = widget.media;
+    final url = media.publicUrl;
+    final bytes = media.memoryBytes;
+
+    Widget mediaWidget;
+
+    if (bytes != null && bytes.isNotEmpty) {
+      mediaWidget = Image.memory(
+        bytes,
+        fit: BoxFit.cover,
+        errorBuilder: (context, error, stackTrace) => _buildFallbackIcon(),
+      );
+    } else if (url != null && url.isNotEmpty) {
+      mediaWidget = Image.network(
+        url,
+        fit: BoxFit.cover,
+        loadingBuilder: (context, child, progress) {
+          if (progress == null) return child;
+          return Center(
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              value: progress.expectedTotalBytes != null
+                  ? progress.cumulativeBytesLoaded / progress.expectedTotalBytes!
+                  : null,
+            ),
+          );
+        },
+        errorBuilder: (context, error, stackTrace) => _buildFallbackIcon(),
+      );
+    } else {
+      mediaWidget = _buildFallbackIcon();
+    }
+
+    final social = context.watch<SocialController>();
+    final isFavourite = social.isFavourite(media.id);
+
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        mediaWidget,
+
+        // Hover overlay
+        AnimatedOpacity(
+          duration: const Duration(milliseconds: 150),
+          opacity: _isHovered ? 1.0 : 0.0,
+          child: IgnorePointer(
+            child: Container(
+              color: Colors.black.withValues(alpha: 0.45),
+              alignment: Alignment.center,
+              child: const Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.open_in_full, color: Colors.white, size: 28),
+                  SizedBox(height: 6),
+                  Text(
+                    'Open',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 13,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+
+        // Favourite (like) button, top-left corner.
+        // Fase 3, punto 16: l'icona si riempie subito al tap (già gestito
+        // in modo ottimistico da SocialController.toggleFavourite, che
+        // aggiorna lo stato locale prima ancora che la chiamata di rete
+        // finisca) — qui aggiungiamo anche un piccolo "pop" per rendere
+        // il cambiamento più evidente.
+        if (widget.showFavouriteButton && !widget.isSelecting)
+          Positioned(
+            top: 4,
+            left: 4,
+            child: Material(
+              color: Colors.black.withValues(alpha: 0.42),
+              shape: const CircleBorder(),
+              child: IconButton(
+                tooltip: isFavourite ? 'Remove from favourites' : 'Add to favourites',
+                iconSize: 18,
+                visualDensity: VisualDensity.compact,
+                constraints: const BoxConstraints(minWidth: 34, minHeight: 34),
+                padding: EdgeInsets.zero,
+                icon: TweenAnimationBuilder<double>(
+                  key: ValueKey(isFavourite),
+                  tween: Tween(begin: 0.6, end: 1.0),
+                  duration: const Duration(milliseconds: 220),
+                  curve: Curves.elasticOut,
+                  builder: (context, scale, child) => Transform.scale(scale: scale, child: child),
+                  child: Icon(
+                    isFavourite ? Icons.favorite : Icons.favorite_border,
+                    color: isFavourite ? Colors.redAccent : Colors.white,
+                  ),
+                ),
+                onPressed: _toggleFavourite,
+              ),
+            ),
+          ),
+
+        // Multiple selection
+        if (widget.isSelecting)
+          Positioned(
+            top: 6,
+            left: 6,
+            child: Checkbox(
+              value: widget.isSelected,
+              onChanged: (_) => widget.onSelectionChanged(),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+              fillColor: WidgetStateProperty.resolveWith<Color>(
+                (states) => states.contains(WidgetState.selected)
+                    ? Theme.of(context).colorScheme.primary
+                    : Colors.black54,
+              ),
+              checkColor: Colors.white,
+              side: const BorderSide(color: Colors.white, width: 2),
+            ),
+          ),
+
+        // Star rating badge
+        // Fase 3, punto 15: rimosso dalla vista a griglia per non coprire
+        // l'immagine — resta solo il pulsante Preferiti in alto a
+        // sinistra. Il voto è comunque visibile aprendo la foto.
+
+        // Author name along the bottom.
+        // Fase 3, punto 15: rimosso dalla vista a griglia per lo stesso
+        // motivo; il nome dell'autore resta visibile nella preview a
+        // schermo intero e nelle pagine profilo.
+      ],
+    );
+  }
+
+  Widget _buildFallbackIcon() {
+    return Container(
+      color: Colors.grey.shade200,
+      child: Center(
+        child: Icon(Icons.image, size: 40, color: Colors.grey.shade400),
+      ),
+    );
+  }
+}

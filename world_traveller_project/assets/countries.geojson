@@ -1,0 +1,23 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Austria"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [16.0, 48.0],
+            [16.5, 48.0],
+            [16.5, 47.5],
+            [16.0, 47.5],
+            [16.0, 48.0]
+          ]
+        ]
+      }
+    }
+  ]
+}

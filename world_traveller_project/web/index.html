@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <base href="$FLUTTER_BASE_HREF">
+
+  <meta charset="UTF-8">
+  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="description" content="World Traveller - Conserva e rivivi i tuoi ricordi di viaggio nel mondo su una mappa interattiva.">
+  <meta name="theme-color" content="#0F766E">
+
+  <!-- Open Graph -->
+  <meta property="og:title" content="World Traveller">
+  <meta property="og:description" content="Esplora e salva i tuoi ricordi di viaggio su una mappa mondiale interattiva.">
+  <meta property="og:type" content="website">
+
+  <!-- iOS meta tags & icons -->
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="World Traveller">
+  <link rel="apple-touch-icon" href="icons/Icon-192.png">
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/png" href="favicon.png"/>
+
+  <title>World Traveller</title>
+  <link rel="manifest" href="manifest.json">
+
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      background-color: #0d1117;
+      color: #ffffff;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      overflow: hidden;
+    }
+    #loading-splash {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      width: 100vw;
+      position: fixed;
+      top: 0;
+      left: 0;
+      z-index: 9999;
+      background: radial-gradient(circle at center, #134e48 0%, #042f2e 100%);
+      transition: opacity 0.4s ease-out;
+    }
+    .spinner {
+      width: 50px;
+      height: 50px;
+      border: 4px solid rgba(255, 255, 255, 0.2);
+      border-top-color: #2dd4bf;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    .splash-title {
+      margin-top: 20px;
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      color: #f0fdfa;
+    }
+    .splash-subtitle {
+      margin-top: 8px;
+      font-size: 13px;
+      color: #99f6e4;
+      opacity: 0.8;
+    }
+  </style>
+</head>
+<body>
+  <div id="loading-splash">
+    <div class="spinner"></div>
+    <div class="splash-title">World Traveller</div>
+    <div class="splash-subtitle">Caricamento della mappa e dei tuoi ricordi...</div>
+  </div>
+
+  <script>
+    window.addEventListener('load', function() {
+      // Quando Flutter rimuove lo splash o si avvia
+      const splash = document.getElementById('loading-splash');
+      if (splash) {
+        setTimeout(function() {
+          splash.style.opacity = '0';
+          setTimeout(function() { splash.remove(); }, 400);
+        }, 1200);
+      }
+    });
+  </script>
+
+  <script src="flutter_bootstrap.js" async></script>
+</body>
+</html>
