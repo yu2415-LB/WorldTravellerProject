@@ -275,8 +275,16 @@ class _LoginPageState extends State<LoginPage> {
       } else {
         generalError = error.message;
       }
+    } else if (error is PostgrestException) {
+      // The account itself was created fine, but saving the row in
+      // "profiles" failed (a database constraint, a permissions rule,
+      // ...). Showing the real message — instead of a generic banner —
+      // is what let us actually find and fix the missing-username bug
+      // this exact error was hiding.
+      generalError = 'Account created, but the profile could not be saved: '
+          '${error.message}';
     } else {
-      generalError = 'Something went wrong. Please try again.';
+      generalError = 'Something went wrong: $error';
     }
 
     setState(() {
@@ -316,14 +324,28 @@ class _LoginPageState extends State<LoginPage> {
 
       final newUser = response.user;
       if (newUser != null) {
-        // The profiles row (and its automatically generated unique ID)
-        // is created here, right after the auth account exists.
-        await profileService.saveProfile(
-          userId: newUser.id,
-          firstName: firstName,
-          lastName: lastName,
-          email: _emailController.text.trim(),
-        );
+        // The profiles row is normally created by a database trigger
+        // (see 00_new_project_fix.sql), which runs with its own
+        // permissions and always succeeds. This call is only a shortcut
+        // so the name is saved without waiting for a refresh.
+        //
+        // When "Confirm email" is switched on in Supabase there is no
+        // session yet at this exact point (auth.uid() is still null),
+        // so this specific call is REJECTED by Row Level Security even
+        // though the trigger already created the row correctly. That
+        // is expected, not a real failure, so it must not be shown to
+        // the person as an error — only genuine problems should be.
+        try {
+          await profileService.saveProfile(
+            userId: newUser.id,
+            firstName: firstName,
+            lastName: lastName,
+            email: _emailController.text.trim(),
+          );
+        } on PostgrestException catch (e) {
+          debugPrint('Profile upsert skipped right after sign-up (expected '
+              'before email confirmation): $e');
+        }
       }
 
       if (!mounted) return;

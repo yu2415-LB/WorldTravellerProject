@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
-import 'package:world_traveller_project/components/app_navigation.dart';
 import 'package:world_traveller_project/components/media_tile.dart';
 import 'package:world_traveller_project/enums/media_visibility.dart';
 import 'package:world_traveller_project/models/location.dart';
@@ -48,14 +47,6 @@ class _MapViewState extends State<MapView> {
   bool _sidebarExpanded = false;
   bool _sidebarVisibleOnMobile = false;
   Location? _locationBeingMoved;
-
-  /// Whether the main navigation sidebar (not the photo gallery panel
-  /// above) is showing its text labels or collapsed down to icons.
-  bool _navExpanded = true;
-
-  /// Lets nav destinations close the Drawer on mobile before navigating,
-  /// without accidentally popping the map screen itself off the stack.
-  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
 
   /// Set by a plain tap on empty map: a temporary pin waiting for
   /// confirmation (long-press) before a new memory is actually created.
@@ -1239,120 +1230,6 @@ class _MapViewState extends State<MapView> {
     );
   }
 
-  void _closeDrawerIfOpen() {
-    final state = _scaffoldKey.currentState;
-    if (state != null && state.isDrawerOpen) {
-      state.closeDrawer();
-    }
-  }
-
-  /// The app's whole main menu, in one place: same destinations shown as
-  /// a collapsible sidebar on wide screens and as a Drawer on phones, so
-  /// the two can never drift out of sync with each other.
-  List<AppNavDestination> _buildNavDestinations(
-    BuildContext context, {
-    required SocialController social,
-  }) {
-    final signedIn = supabase.auth.currentUser != null;
-
-    return [
-      AppNavDestination(
-        icon: Icons.map_outlined,
-        label: 'Locations',
-        selected: true,
-        onTap: _closeDrawerIfOpen,
-      ),
-      AppNavDestination(
-        icon: Icons.grid_view_rounded,
-        label: 'All photos',
-        onTap: () {
-          _closeDrawerIfOpen();
-          Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => const MediaCollectionView()),
-          );
-        },
-      ),
-      AppNavDestination(
-        icon: Icons.favorite_border,
-        label: 'Favourites',
-        onTap: () async {
-          _closeDrawerIfOpen();
-          await Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => const FavouritesView()),
-          );
-          if (mounted) setState(() {});
-        },
-      ),
-      AppNavDestination(
-        icon: Icons.collections_bookmark_outlined,
-        label: 'My work',
-        onTap: () async {
-          _closeDrawerIfOpen();
-          await Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => const MyMemoriesView()),
-          );
-          if (mounted) setState(() {});
-        },
-      ),
-      AppNavDestination(
-        icon: Icons.travel_explore,
-        label: 'People',
-        onTap: () {
-          _closeDrawerIfOpen();
-          Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => const UserSearchView()),
-          );
-        },
-      ),
-      AppNavDestination(
-        icon: Icons.mail_outline,
-        label: 'Messages',
-        badgeCount: social.unreadMailboxCount,
-        onTap: () async {
-          _closeDrawerIfOpen();
-          if (!await ensureLoggedIn(context)) return;
-          if (!mounted) return;
-          await Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => const MailboxView()),
-          );
-          if (mounted) setState(() {});
-        },
-      ),
-      AppNavDestination(
-        icon: signedIn ? Icons.account_circle : Icons.login,
-        label: signedIn ? 'My profile' : 'Sign in',
-        onTap: () async {
-          _closeDrawerIfOpen();
-          if (signedIn) {
-            await Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const MyAccountView()),
-            );
-            if (mounted) setState(() {});
-          } else {
-            await ensureLoggedIn(context);
-            if (!mounted) return;
-            await context.read<SocialController>().refreshForCurrentUser();
-            if (mounted) setState(() {});
-          }
-        },
-      ),
-      AppNavDestination(
-        icon: Icons.info_outline,
-        label: 'About',
-        onTap: () {
-          _closeDrawerIfOpen();
-          showAboutCreditsDialog(context);
-        },
-      ),
-    ];
-  }
-
   @override
   Widget build(BuildContext context) {
     final controller = context.watch<LocationManagingController>();
@@ -1364,24 +1241,8 @@ class _MapViewState extends State<MapView> {
     final isMoving = _locationBeingMoved != null;
     final isMobile = MediaQuery.of(context).size.width < 720;
 
-    final navDestinations = _buildNavDestinations(context, social: social);
-
     return Scaffold(
-      key: _scaffoldKey,
-      // On a phone-sized screen the whole menu lives in this Drawer,
-      // opened with the hamburger button below — same destinations,
-      // same order, as the desktop sidebar.
-      drawer: isMobile ? AppNavDrawer(destinations: navDestinations) : null,
       appBar: AppBar(
-        leading: isMobile
-            ? Builder(
-                builder: (context) => IconButton(
-                  tooltip: 'Menu',
-                  icon: const Icon(Icons.menu),
-                  onPressed: () => Scaffold.of(context).openDrawer(),
-                ),
-              )
-            : null,
         title: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -1397,36 +1258,119 @@ class _MapViewState extends State<MapView> {
               icon: Icon(_sidebarVisibleOnMobile ? Icons.map_outlined : Icons.photo_library_outlined),
               onPressed: () => setState(() => _sidebarVisibleOnMobile = !_sidebarVisibleOnMobile),
             ),
-        ],
-      ),
-      // The single most important action on this screen, always visible,
-      // always labelled — no guessing what the icon means.
-      floatingActionButton: FloatingActionButton.extended(
-        tooltip: 'Add photos to the map',
-        icon: const Icon(Icons.add_a_photo_outlined),
-        label: const Text('Add photos'),
-        onPressed: () async {
-          if (!await ensureLoggedIn(context)) return;
-          if (!mounted) return;
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => const AddMediaView(),
+          IconButton(
+            tooltip: 'Add a memory',
+            icon: const Icon(Icons.add_circle_outline),
+            onPressed: () async {
+              if (!await ensureLoggedIn(context)) return;
+              if (!mounted) return;
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const AddMediaView(),
+                ),
+              );
+            },
+          ),
+          IconButton(
+            tooltip: 'Find travellers',
+            icon: const Icon(Icons.travel_explore),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const UserSearchView()),
+              );
+            },
+          ),
+          IconButton(
+            tooltip: social.unreadMailboxCount > 0
+                ? 'Mailbox (${social.unreadMailboxCount} new)'
+                : 'Mailbox',
+            icon: Badge(
+              label: Text('${social.unreadMailboxCount}'),
+              isLabelVisible: social.unreadMailboxCount > 0,
+              child: const Icon(Icons.mail_outline),
             ),
-          );
-        },
+            onPressed: () async {
+              if (!await ensureLoggedIn(context)) return;
+              if (!mounted) return;
+              await Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const MailboxView()),
+              );
+              if (mounted) setState(() {});
+            },
+          ),
+          IconButton(
+            tooltip: 'Favourites',
+            icon: const Icon(Icons.favorite_border),
+            onPressed: () async {
+              await Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const FavouritesView()),
+              );
+              if (mounted) setState(() {});
+            },
+          ),
+          IconButton(
+            tooltip: 'My memories',
+            icon: const Icon(Icons.collections_bookmark_outlined),
+            onPressed: () async {
+              await Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const MyMemoriesView()),
+              );
+              if (mounted) setState(() {});
+            },
+          ),
+          IconButton(
+            tooltip: 'All memories',
+            icon: const Icon(Icons.grid_view_rounded),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const MediaCollectionView(),
+                ),
+              );
+            },
+          ),
+          IconButton(
+            tooltip: supabase.auth.currentUser != null
+                ? 'Account: ${supabase.auth.currentUser!.email}'
+                : 'Sign in',
+            icon: Icon(
+              supabase.auth.currentUser != null
+                  ? Icons.account_circle
+                  : Icons.login,
+            ),
+            onPressed: () async {
+              if (supabase.auth.currentUser != null) {
+                await Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const MyAccountView()),
+                );
+                if (mounted) setState(() {});
+              } else {
+                await ensureLoggedIn(context);
+                if (!mounted) return;
+                await context.read<SocialController>().refreshForCurrentUser();
+                if (mounted) setState(() {});
+              }
+            },
+          ),
+          IconButton(
+            tooltip: 'Credits & info',
+            icon: const Icon(Icons.info_outline),
+            onPressed: () => showAboutCreditsDialog(context),
+          ),
+        ],
       ),
       body: isMobile && _sidebarVisibleOnMobile
           ? _buildSidebar(locations)
           : Row(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                if (!isMobile)
-                  AppNavSidebar(
-                    destinations: navDestinations,
-                    expanded: _navExpanded,
-                    onToggleExpanded: () => setState(() => _navExpanded = !_navExpanded),
-                  ),
                 if (!isMobile)
                   LayoutBuilder(
                     builder: (context, constraints) {
