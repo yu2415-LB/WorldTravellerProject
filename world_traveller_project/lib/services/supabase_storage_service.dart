@@ -68,26 +68,25 @@ class SupabaseStorageService {
     // Work out the right MIME type.
     final mimeType = lookupMimeType(fileName) ?? 'image/jpeg';
 
-    try {
-      // 1. Try uploading to Supabase Storage.
-      await _client.storage.from(_bucketName).uploadBinary(
-        storagePath,
-        bytes,
-        fileOptions: FileOptions(
-          contentType: mimeType,
-          upsert: true,
-        ),
-      );
+    // No silent fallback here on purpose: an upload that silently "succeeds"
+    // with a throwaway base64 URL saves a `storage_path` in the database
+    // that points at a file which was never actually written to Storage.
+    // The picture looks fine for the rest of this session, then shows up
+    // broken forever for everyone else (and even for you, next time you
+    // reload). Throwing lets the screen that called this show the real
+    // reason ("bucket not found", a policy rejecting the path, a network
+    // error, ...) instead of a picture nobody can actually see again.
+    await _client.storage.from(_bucketName).uploadBinary(
+      storagePath,
+      bytes,
+      fileOptions: FileOptions(
+        contentType: mimeType,
+        upsert: true,
+      ),
+    );
 
-      final publicUrl = _client.storage.from(_bucketName).getPublicUrl(storagePath);
-      return (storagePath: storagePath, publicUrl: publicUrl);
-    } catch (e) {
-      debugPrint('Supabase Storage upload failed or bucket not ready ($e).');
-      // Fallback: build a base64 data URL so the picture still shows up.
-      final base64String = base64Encode(bytes);
-      final dataUrl = 'data:$mimeType;base64,$base64String';
-      return (storagePath: storagePath, publicUrl: dataUrl);
-    }
+    final publicUrl = _client.storage.from(_bucketName).getPublicUrl(storagePath);
+    return (storagePath: storagePath, publicUrl: publicUrl);
   }
 
   /// Uploads a new profile picture and returns its public URL.
@@ -101,19 +100,13 @@ class SupabaseStorageService {
     final storagePath = 'avatars/$userId$fileExt';
     final mimeType = lookupMimeType(fileName) ?? 'image/jpeg';
 
-    try {
-      await _client.storage.from(_bucketName).uploadBinary(
-            storagePath,
-            bytes,
-            fileOptions: FileOptions(contentType: mimeType, upsert: true),
-          );
-      // Cache-bust so the new picture shows up immediately everywhere.
-      return '${_client.storage.from(_bucketName).getPublicUrl(storagePath)}?t=${DateTime.now().millisecondsSinceEpoch}';
-    } catch (e) {
-      debugPrint('Avatar upload failed ($e).');
-      final base64String = base64Encode(bytes);
-      return 'data:$mimeType;base64,$base64String';
-    }
+    await _client.storage.from(_bucketName).uploadBinary(
+          storagePath,
+          bytes,
+          fileOptions: FileOptions(contentType: mimeType, upsert: true),
+        );
+    // Cache-bust so the new picture shows up immediately everywhere.
+    return '${_client.storage.from(_bucketName).getPublicUrl(storagePath)}?t=${DateTime.now().millisecondsSinceEpoch}';
   }
 
   /// Loads every place from Supabase, falling back to the local cache.

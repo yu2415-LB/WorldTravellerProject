@@ -385,6 +385,24 @@ class _LoginPageState extends State<LoginPage> {
         }
       }
 
+      // A blocked account never gets in: sign back out immediately and
+      // explain why, instead of leaving them signed in with a read-only
+      // app. They can still browse the public "General World" like any
+      // signed-out visitor — just not add or edit anything.
+      if (social.isCurrentUserBlocked) {
+        await supabase.auth.signOut();
+        if (!mounted) return;
+        await social.refreshForCurrentUser();
+        if (!mounted) return;
+        setState(() {
+          _status = _FormStatus.error;
+          _generalError = 'This account has been blocked by the administrator '
+              'for breaking the terms of use. You can still browse the public '
+              'pictures, but you cannot sign in.';
+        });
+        return;
+      }
+
       setState(() => _status = _FormStatus.success);
       Navigator.of(context).pop(true);
     } catch (e) {
