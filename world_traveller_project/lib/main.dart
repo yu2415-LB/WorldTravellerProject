@@ -57,31 +57,123 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const seedColor = Color(0xFF0F766E); // Elegant traveller teal
+    // A single teal seed left every button, chip and badge in almost the
+    // same hue — flat and a bit dull. Three distinct, deliberately
+    // chosen colours instead: an ocean blue as the brand/primary colour,
+    // a warm sunset coral as the secondary accent (elevated buttons,
+    // highlights) and a fresh teal-green as the tertiary one (badges,
+    // success states). Surfaces stay neutral so the extra colour reads
+    // as "professional with character", not garish.
+    const primarySeed = Color(0xFF1E6FEB); // Ocean blue
+    const secondarySeed = Color(0xFFE8590C); // Sunset coral
+    const tertiarySeed = Color(0xFF0E9F6E); // Fresh teal-green
 
     ThemeData buildTheme(Brightness brightness) {
       final base = brightness == Brightness.light
           ? ThemeData.light()
           : ThemeData.dark();
 
+      // Each accent gets its own small tonal palette, generated
+      // separately so their hues stay genuinely distinct instead of
+      // collapsing into variations of a single seed colour.
+      final primaryTones = ColorScheme.fromSeed(seedColor: primarySeed, brightness: brightness);
+      final secondaryTones =
+          ColorScheme.fromSeed(seedColor: secondarySeed, brightness: brightness);
+      final tertiaryTones =
+          ColorScheme.fromSeed(seedColor: tertiarySeed, brightness: brightness);
+
+      final scheme = primaryTones.copyWith(
+        secondary: secondaryTones.primary,
+        onSecondary: secondaryTones.onPrimary,
+        secondaryContainer: secondaryTones.primaryContainer,
+        onSecondaryContainer: secondaryTones.onPrimaryContainer,
+        tertiary: tertiaryTones.primary,
+        onTertiary: tertiaryTones.onPrimary,
+        tertiaryContainer: tertiaryTones.primaryContainer,
+        onTertiaryContainer: tertiaryTones.onPrimaryContainer,
+      );
+
+      // Text colours come from the colour scheme itself, so text is always
+      // readable on top of surfaces in both the light and the dark theme.
+      final textTheme = GoogleFonts.plusJakartaSansTextTheme(base.textTheme)
+          .apply(bodyColor: scheme.onSurface, displayColor: scheme.onSurface);
+
+      // Explicit button colours: label/icon and background always come as a
+      // matching pair from the scheme, and disabled buttons stay visible.
+      final disabledBg = scheme.onSurface.withValues(alpha: 0.12);
+      final disabledFg = scheme.onSurface.withValues(alpha: 0.5);
+
       return ThemeData(
         useMaterial3: true,
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: seedColor,
-          brightness: brightness,
+        colorScheme: scheme,
+        textTheme: textTheme,
+        scaffoldBackgroundColor: scheme.surface,
+        filledButtonTheme: FilledButtonThemeData(
+          style: FilledButton.styleFrom(
+            backgroundColor: scheme.primary,
+            foregroundColor: scheme.onPrimary,
+            disabledBackgroundColor: disabledBg,
+            disabledForegroundColor: disabledFg,
+          ),
         ),
-        textTheme: GoogleFonts.plusJakartaSansTextTheme(base.textTheme),
+        // A warmer, coral-toned style for "elevated" buttons — used across
+        // the app for standout actions (confirm, add) — instead of the
+        // same blue as everything else.
+        elevatedButtonTheme: ElevatedButtonThemeData(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: scheme.secondaryContainer,
+            foregroundColor: scheme.onSecondaryContainer,
+            disabledBackgroundColor: disabledBg,
+            disabledForegroundColor: disabledFg,
+          ),
+        ),
+        outlinedButtonTheme: OutlinedButtonThemeData(
+          style: OutlinedButton.styleFrom(
+            foregroundColor: scheme.primary,
+            side: BorderSide(color: scheme.outline),
+            disabledForegroundColor: disabledFg,
+          ),
+        ),
+        textButtonTheme: TextButtonThemeData(
+          style: TextButton.styleFrom(
+            foregroundColor: scheme.primary,
+            disabledForegroundColor: disabledFg,
+          ),
+        ),
+        iconButtonTheme: IconButtonThemeData(
+          style: IconButton.styleFrom(
+            foregroundColor: scheme.onSurface,
+            disabledForegroundColor: disabledFg,
+          ),
+        ),
+        // The green accent makes the FAB (and the "Add a memory" action)
+        // pop instead of blending into the rest of the blue UI.
+        floatingActionButtonTheme: FloatingActionButtonThemeData(
+          backgroundColor: scheme.tertiary,
+          foregroundColor: scheme.onTertiary,
+        ),
+        badgeTheme: BadgeThemeData(
+          backgroundColor: scheme.tertiary,
+          textColor: scheme.onTertiary,
+        ),
+        snackBarTheme: SnackBarThemeData(
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+        dividerTheme: DividerThemeData(color: scheme.outlineVariant),
         appBarTheme: const AppBarTheme(
           centerTitle: false,
           elevation: 0,
-          scrolledUnderElevation: 1,
+          scrolledUnderElevation: 2,
         ),
         cardTheme: CardThemeData(
-          elevation: 1,
+          elevation: 1.5,
+          shadowColor: scheme.primary.withValues(alpha: 0.18),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         ),
         chipTheme: ChipThemeData(
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          selectedColor: scheme.secondaryContainer,
         ),
       );
     }
@@ -397,13 +489,30 @@ class _LoginPageState extends State<LoginPage> {
 
       // Accounts created before this profile shape existed get a
       // placeholder name now, so every picture can still show an author.
+      //
+      // A profile that looks "missing" right here can just as easily be
+      // a slow connection or the sign-up trigger not having committed
+      // yet as a genuinely old account — so this retries a couple of
+      // times before giving up, and even then only ever CREATES a row
+      // when none exists; it can never overwrite a name the person
+      // already typed in, which is what used to make a real "First Last"
+      // occasionally get replaced by a guessed one.
       if (social.myProfile == null) {
-        final user = supabase.auth.currentUser;
-        if (user != null) {
-          await _createFallbackProfile(user);
+        for (var attempt = 0; attempt < 2 && social.myProfile == null; attempt++) {
+          await Future.delayed(const Duration(milliseconds: 400));
           if (!mounted) return;
           await social.refreshForCurrentUser();
           if (!mounted) return;
+        }
+
+        if (social.myProfile == null) {
+          final user = supabase.auth.currentUser;
+          if (user != null) {
+            await _createFallbackProfile(user);
+            if (!mounted) return;
+            await social.refreshForCurrentUser();
+            if (!mounted) return;
+          }
         }
       }
 
@@ -439,7 +548,9 @@ class _LoginPageState extends State<LoginPage> {
     final base = (user.email ?? 'traveller').split('@').first;
 
     try {
-      await service.saveProfile(
+      // insert-only (ignores the row if one already exists): a guessed
+      // name from the email address must never replace a real one.
+      await service.createProfileIfMissing(
         userId: user.id,
         firstName: base.isEmpty ? 'Traveller' : base,
         lastName: '',

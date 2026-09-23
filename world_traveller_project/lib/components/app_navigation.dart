@@ -159,12 +159,22 @@ class _NavHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final logo = Icon(Icons.public, color: theme.colorScheme.primary, size: 28);
+    // A small gradient accent instead of a flat neutral bar: this is the
+    // one spot in the sidebar/drawer that is always on screen, so it is
+    // where a bit of colour reads best without competing with the map
+    // or the photo grid underneath it.
+    final gradient = LinearGradient(
+      begin: Alignment.topLeft,
+      end: Alignment.bottomRight,
+      colors: [theme.colorScheme.primary, theme.colorScheme.tertiary],
+    );
+    const logo = Icon(Icons.public, color: Colors.white, size: 28);
 
-    return Padding(
+    return Container(
+      decoration: BoxDecoration(gradient: gradient),
       padding: EdgeInsets.symmetric(horizontal: compact ? 0 : 20, vertical: 20),
       child: compact
-          ? Center(child: logo)
+          ? const Center(child: logo)
           : Row(
               children: [
                 logo,
@@ -173,7 +183,10 @@ class _NavHeader extends StatelessWidget {
                   child: Text(
                     'World Traveller',
                     overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
                   ),
                 ),
               ],
