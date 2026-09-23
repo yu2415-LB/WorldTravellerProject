@@ -97,7 +97,12 @@ class SupabaseStorageService {
     required String fileName,
   }) async {
     final fileExt = p.extension(fileName).isEmpty ? '.jpg' : p.extension(fileName).toLowerCase();
-    final storagePath = 'avatars/$userId$fileExt';
+    // The storage policy only allows a user to write under a path whose
+    // FIRST folder is their own id ((storage.foldername(name))[1] =
+    // auth.uid()). The old "avatars/<id>.jpg" path put "avatars" first
+    // instead, so every upload was rejected with a 403. "<id>/avatar.jpg"
+    // matches the same rule pictures already use.
+    final storagePath = '$userId/avatar$fileExt';
     final mimeType = lookupMimeType(fileName) ?? 'image/jpeg';
 
     await _client.storage.from(_bucketName).uploadBinary(
