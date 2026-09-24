@@ -164,25 +164,28 @@ class SupabaseStorageService {
     }
   }
 
-  /// Saves or updates a single place in Supabase and in the local cache.
+  /// Saves or updates a single place in Supabase. Throws on failure —
+  /// this used to swallow the error and quietly write only to the local
+  /// on-device cache, which is exactly why a picture added on one
+  /// device never showed up on another: it never actually reached
+  /// Supabase, but nothing ever told you that.
   Future<void> saveLocation(Location location) async {
     final user = _client.auth.currentUser;
     final userId = user?.id;
-
-    if (userId != null) {
-      try {
-        await _client.from('locations').upsert(location.toSupabase(userId));
-
-        // Upsert the pictures that belong to it.
-        for (final media in location.mediaSet) {
-          await _client.from('media_items').upsert(media.toSupabase(location.id, userId));
-        }
-      } catch (e) {
-        debugPrint('Saving to Supabase failed ($e). Stored in the local cache.');
-      }
+    if (userId == null) {
+      throw StateError('You need to be signed in to save a place.');
     }
 
-    // Always refresh the local cache.
+    await _client.from('locations').upsert(location.toSupabase(userId));
+
+    // Upsert the pictures that belong to it.
+    for (final media in location.mediaSet) {
+      await _client.from('media_items').upsert(media.toSupabase(location.id, userId));
+    }
+
+    // Only now that Supabase actually has it do we refresh the local
+    // cache — the cache is a copy of what's confirmed saved, never a
+    // silent substitute for it.
     final currentList = await _loadLocationsFromLocalCache();
     final idx = currentList.indexWhere((l) => l.id == location.id);
     if (idx != -1) {
@@ -193,62 +196,63 @@ class SupabaseStorageService {
     await _saveLocationsToLocalCache(currentList);
   }
 
-  /// Saves the whole list of places.
+  /// Saves the whole list of places. Throws on the first failure — see
+  /// [saveLocation] for why silently continuing is the wrong call here.
   Future<void> saveLocations(List<Location> locations) async {
-    await _saveLocationsToLocalCache(locations);
-
     final user = _client.auth.currentUser;
     final userId = user?.id;
-    if (userId == null) return;
+    if (userId == null) {
+      throw StateError('You need to be signed in to save your places.');
+    }
 
     for (final loc in locations) {
-      try {
-        await _client.from('locations').upsert(loc.toSupabase(userId));
-        for (final m in loc.mediaSet) {
-          await _client.from('media_items').upsert(m.toSupabase(loc.id, userId));
-        }
-      } catch (e) {
-        debugPrint('Supabase sync failed ($e)');
+      await _client.from('locations').upsert(loc.toSupabase(userId));
+      for (final m in loc.mediaSet) {
+        await _client.from('media_items').upsert(m.toSupabase(loc.id, userId));
       }
     }
+
+    await _saveLocationsToLocalCache(locations);
   }
 
-  /// Deletes a place and every picture in it.
+  /// Deletes a place and every picture in it. Throws on failure instead
+  /// of pretending it worked while only removing it from the local
+  /// cache — a "successful" delete that only hides the pin on your own
+  /// device, but leaves it live for everyone else, is worse than an
+  /// error message.
   Future<void> deleteLocation(Location location) async {
-    try {
-      // Remove the files from storage.
-      final filesToDelete = location.mediaSet
-          .map((m) => m.filePath)
-          .where((p) => p.isNotEmpty && !p.startsWith('http') && !p.startsWith('data:'))
-          .toList();
+    // Remove the files from storage first; if this fails we still try
+    // the database row below, but we don't hide the failure either way.
+    final filesToDelete = location.mediaSet
+        .map((m) => m.filePath)
+        .where((p) => p.isNotEmpty && !p.startsWith('http') && !p.startsWith('data:'))
+        .toList();
 
-      if (filesToDelete.isNotEmpty) {
-        try {
-          await _client.storage.from(_bucketName).remove(filesToDelete);
-        } catch (_) {}
+    if (filesToDelete.isNotEmpty) {
+      try {
+        await _client.storage.from(_bucketName).remove(filesToDelete);
+      } catch (e) {
+        debugPrint('Could not remove some files from Storage: $e');
       }
-
-      // Remove it from the database.
-      await _client.from('locations').delete().eq('id', location.id);
-    } catch (e) {
-      debugPrint('Could not delete from Supabase: $e');
     }
+
+    await _client.from('locations').delete().eq('id', location.id);
 
     final currentList = await _loadLocationsFromLocalCache();
     currentList.removeWhere((l) => l.id == location.id);
     await _saveLocationsToLocalCache(currentList);
   }
 
-  /// Deletes a single picture.
+  /// Deletes a single picture. Throws on failure — see [deleteLocation].
   Future<void> deleteMedia(Media media, Location location) async {
-    try {
-      if (media.filePath.isNotEmpty && !media.filePath.startsWith('http') && !media.filePath.startsWith('data:')) {
+    if (media.filePath.isNotEmpty && !media.filePath.startsWith('http') && !media.filePath.startsWith('data:')) {
+      try {
         await _client.storage.from(_bucketName).remove([media.filePath]);
+      } catch (e) {
+        debugPrint('Could not remove the file from Storage: $e');
       }
-      await _client.from('media_items').delete().eq('id', media.id);
-    } catch (e) {
-      debugPrint('Could not delete the picture from Supabase: $e');
     }
+    await _client.from('media_items').delete().eq('id', media.id);
 
     location.removeMedia(media);
     await saveLocation(location);
