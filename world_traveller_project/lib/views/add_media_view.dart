@@ -5,20 +5,30 @@ import 'package:image_picker/image_picker.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
 import 'package:world_traveller_project/components/custom_map.dart';
+import 'package:world_traveller_project/components/photo_drop_zone.dart';
 import 'package:world_traveller_project/models/location.dart';
 import 'package:world_traveller_project/models/media.dart';
 import 'package:world_traveller_project/providers/location_managing_controller.dart';
 import 'package:world_traveller_project/services/geocoding_service.dart';
+import 'package:world_traveller_project/services/image_validation_service.dart';
 import 'package:world_traveller_project/services/moderation_service.dart';
 import 'package:world_traveller_project/views/edit_media_view.dart';
 
 class _PickedFileItem {
   final XFile file;
+
+  /// Bytes ready to upload (scaled to at most 2048 px when needed).
   final Uint8List bytes;
+
+  /// Name matching [bytes]' real format (see PreparedImage.fileName).
+  final String fileName;
+  final bool wasResized;
 
   _PickedFileItem({
     required this.file,
     required this.bytes,
+    required this.fileName,
+    this.wasResized = false,
   });
 }
 
@@ -52,6 +62,14 @@ class _AddMediaViewState extends State<AddMediaView> {
   final ModerationService _moderationService = ModerationService();
 
   final List<_PickedFileItem> _pickedMedia = [];
+
+  /// Files that were refused, already worded for the traveller.
+  final List<String> _fileErrors = [];
+  bool _preparing = false;
+
+  // Upload progress shown while saving.
+  int _uploadDone = 0;
+  int _uploadTotal = 0;
 
   LatLng? _pickedPosition;
   bool _saving = false;
@@ -210,16 +228,74 @@ class _AddMediaViewState extends State<AddMediaView> {
   }
 
   Future<void> _pickPhotos() async {
-    final files = await _picker.pickMultiImage(imageQuality: 95);
-
+    final files = await _picker.pickMultiImage();
     if (!mounted || files.isEmpty) return;
+    await _addFiles(files);
+  }
+
+  /// Shared by the file chooser and drag & drop: validates every file,
+  /// scales big ones down to 2048 px and lists what was refused and why.
+  Future<void> _addFiles(List<XFile> files) async {
+    if (files.isEmpty || _saving) return;
+
+    setState(() {
+      _preparing = true;
+      _fileErrors.clear();
+    });
 
     for (final file in files) {
-      final bytes = await file.readAsBytes();
+      try {
+        final raw = await file.readAsBytes();
+        final prepared =
+            await ImageValidationService.instance.prepare(raw, file.name);
+        if (!mounted) return;
+        setState(() => _pickedMedia.add(_PickedFileItem(
+              file: file,
+              bytes: prepared.bytes,
+              fileName: prepared.fileName,
+              wasResized: prepared.wasResized,
+            )));
+      } on ImageValidationException catch (e) {
+        if (!mounted) return;
+        setState(() => _fileErrors.add('${file.name}: ${e.message}'));
+      } catch (e) {
+        debugPrint('Could not read ${file.name}: $e');
+        if (!mounted) return;
+        setState(() => _fileErrors.add('${file.name}: could not be read.'));
+      }
+    }
 
+    if (mounted) setState(() => _preparing = false);
+  }
+
+  Future<void> _replacePhoto(int index) async {
+    final file = await _picker.pickImage(source: ImageSource.gallery);
+    if (file == null || !mounted) return;
+
+    try {
+      final raw = await file.readAsBytes();
+      final prepared =
+          await ImageValidationService.instance.prepare(raw, file.name);
+      if (!mounted) return;
       setState(() {
-        _pickedMedia.add(_PickedFileItem(file: file, bytes: bytes));
+        _fileErrors.clear();
+        _pickedMedia[index] = _PickedFileItem(
+          file: file,
+          bytes: prepared.bytes,
+          fileName: prepared.fileName,
+          wasResized: prepared.wasResized,
+        );
       });
+    } on ImageValidationException catch (e) {
+      if (!mounted) return;
+      setState(() => _fileErrors
+        ..clear()
+        ..add('${file.name}: ${e.message}'));
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _fileErrors
+        ..clear()
+        ..add('${file.name}: could not be read.'));
     }
   }
 
@@ -283,6 +359,8 @@ class _AddMediaViewState extends State<AddMediaView> {
       }
 
       final items = <Media>[];
+      _uploadTotal = _pickedMedia.length;
+      _uploadDone = 0;
 
       for (final item in _pickedMedia) {
         // Future NSFW/AI filter hook (Phase 4, point 21) — a no-op
@@ -295,7 +373,7 @@ class _AddMediaViewState extends State<AddMediaView> {
 
         final media = await controller.uploadAndCreateMedia(
           location: targetLocation,
-          fileName: item.file.name,
+          fileName: item.fileName,
           rawBytes: item.bytes,
           type: MediaType.image,
         );
@@ -306,6 +384,7 @@ class _AddMediaViewState extends State<AddMediaView> {
         } else {
           controller.addMedia(media);
         }
+        if (mounted) setState(() => _uploadDone++);
       }
 
       if (existing == null) {
@@ -623,85 +702,129 @@ class _AddMediaViewState extends State<AddMediaView> {
   }
 
   Widget _mediaPanel() {
+    final theme = Theme.of(context);
+
     return Card(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: Padding(
         padding: const EdgeInsets.all(16),
-        child: _pickedMedia.isEmpty
-            ? MouseRegion(
-                cursor:
-                    _saving ? SystemMouseCursors.basic : SystemMouseCursors.click,
-                child: InkWell(
+        child: Column(
+          children: [
+            if (_fileErrors.isNotEmpty)
+              Container(
+                width: double.infinity,
+                margin: const EdgeInsets.only(bottom: 12),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.errorContainer,
                   borderRadius: BorderRadius.circular(12),
-                  onTap: _saving ? null : _pickPhotos,
-                  child: Container(
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: Colors.grey.shade400, width: 1.5),
-                    ),
-                    child: Center(
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(Icons.error_outline, color: theme.colorScheme.onErrorContainer),
+                    const SizedBox(width: 10),
+                    Expanded(
                       child: Column(
-                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Icon(
-                            Icons.add_photo_alternate_outlined,
-                            size: 64,
-                            color: Colors.grey.shade400,
-                          ),
-                          const SizedBox(height: 12),
-                          Text(
-                            'The pictures you choose will show up here',
-                            style: TextStyle(color: Colors.grey.shade600),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            'Click here to choose your pictures',
-                            style: TextStyle(
-                              color: Theme.of(context).colorScheme.primary,
-                              fontWeight: FontWeight.w600,
-                              fontSize: 13,
-                            ),
-                          ),
+                          for (final e in _fileErrors)
+                            Text(e,
+                                style: TextStyle(
+                                    color: theme.colorScheme.onErrorContainer)),
                         ],
                       ),
                     ),
-                  ),
+                    IconButton(
+                      tooltip: 'Dismiss',
+                      icon: const Icon(Icons.close, size: 18),
+                      onPressed: () => setState(_fileErrors.clear),
+                    ),
+                  ],
                 ),
-              )
-            : GridView.builder(
-                itemCount: _pickedMedia.length,
-                gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                  maxCrossAxisExtent: 200,
-                  crossAxisSpacing: 12,
-                  mainAxisSpacing: 12,
-                ),
-                itemBuilder: (context, index) {
-                  final item = _pickedMedia[index];
-
-                  return Stack(
-                    children: [
-                      Positioned.fill(
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(12),
-                          child: Image.memory(item.bytes, fit: BoxFit.cover),
-                        ),
-                      ),
-                      Positioned(
-                        top: 6,
-                        right: 6,
-                        child: IconButton.filledTonal(
-                          tooltip: 'Remove',
-                          icon: const Icon(Icons.close, size: 18),
-                          onPressed: () {
-                            setState(() => _pickedMedia.removeAt(index));
-                          },
-                        ),
-                      ),
-                    ],
-                  );
-                },
               ),
+            Expanded(
+              child: PhotoDropZone(
+                enabled: !_saving,
+                busy: _preparing,
+                onBrowse: _pickPhotos,
+                onFilesDropped: _addFiles,
+                child: _pickedMedia.isEmpty ? null : _photoGrid(),
+              ),
+            ),
+          ],
+        ),
       ),
+    );
+  }
+
+  Widget _photoGrid() {
+    return GridView.builder(
+      itemCount: _pickedMedia.length + 1,
+      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+        maxCrossAxisExtent: 200,
+        crossAxisSpacing: 12,
+        mainAxisSpacing: 12,
+      ),
+      itemBuilder: (context, index) {
+        // Last tile: add more pictures.
+        if (index == _pickedMedia.length) {
+          return OutlinedButton.icon(
+            onPressed: _saving || _preparing ? null : _pickPhotos,
+            icon: const Icon(Icons.add_photo_alternate_outlined),
+            label: const Text('Add more'),
+            style: OutlinedButton.styleFrom(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+          );
+        }
+
+        final item = _pickedMedia[index];
+
+        return Stack(
+          children: [
+            Positioned.fill(
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: Image.memory(item.bytes, fit: BoxFit.cover),
+              ),
+            ),
+            if (item.wasResized)
+              Positioned(
+                left: 6,
+                bottom: 6,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.6),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Text('Scaled to 2048 px',
+                      style: TextStyle(color: Colors.white, fontSize: 11)),
+                ),
+              ),
+            Positioned(
+              top: 6,
+              right: 6,
+              child: Row(
+                children: [
+                  IconButton.filledTonal(
+                    tooltip: 'Replace',
+                    icon: const Icon(Icons.swap_horiz, size: 18),
+                    onPressed: _saving ? null : () => _replacePhoto(index),
+                  ),
+                  IconButton.filledTonal(
+                    tooltip: 'Remove',
+                    icon: const Icon(Icons.close, size: 18),
+                    onPressed:
+                        _saving ? null : () => setState(() => _pickedMedia.removeAt(index)),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 
@@ -737,6 +860,16 @@ class _AddMediaViewState extends State<AddMediaView> {
               ),
             ),
             const SizedBox(height: 16),
+            if (_saving && _uploadTotal > 0) ...[
+              LinearProgressIndicator(
+                value: _uploadDone / _uploadTotal,
+                minHeight: 8,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              const SizedBox(height: 6),
+              Text('Uploading $_uploadDone of $_uploadTotal'),
+              const SizedBox(height: 12),
+            ],
             Text(
               '${_pickedMedia.length} picture(s) selected',
               style: const TextStyle(fontWeight: FontWeight.w600),
