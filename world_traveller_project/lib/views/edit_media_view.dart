@@ -20,9 +20,16 @@ class _EditMediaViewState extends State<EditMediaView> {
   late TextEditingController _titleController;
   late TextEditingController _storyController;
   final TextEditingController _tagController = TextEditingController();
+  final TextEditingController _customMoodController = TextEditingController();
 
   late double _rating;
-  late int _selectedMood;
+
+  /// null = no mood chosen. One of Media.standardMoods, or _otherMoodOption
+  /// when the person picked "Other..." -- in that case the actual text
+  /// they typed lives in _customMoodController.
+  String? _selectedMood;
+  static const _otherMoodOption = 'Other...';
+
   late List<String> _tags;
   bool _isSaving = false;
 
@@ -38,14 +45,30 @@ class _EditMediaViewState extends State<EditMediaView> {
   @override
   void initState() {
     super.initState();
-    _titleController = TextEditingController(text: widget.media.fileName);
+    _titleController = TextEditingController(text: widget.media.title ?? '');
     _storyController = TextEditingController(text: widget.media.storyNote ?? '');
     _rating = widget.media.grading;
-    _selectedMood = widget.media.moodRating;
+    if (widget.media.mood == null) {
+      _selectedMood = null;
+    } else if (widget.media.isStandardMood) {
+      _selectedMood = widget.media.mood;
+    } else {
+      _selectedMood = _otherMoodOption;
+      _customMoodController.text = widget.media.mood!;
+    }
     _tags = List.from(widget.media.tags);
     _visibility = widget.media.visibility;
     _category = widget.media.category ?? MediaCategory.personalTrip;
     _travelDate = widget.media.travelDate ?? widget.media.lastModification;
+  }
+
+  /// The text that will actually be saved as the mood.
+  String? get _resolvedMood {
+    if (_selectedMood == _otherMoodOption) {
+      final custom = _customMoodController.text.trim();
+      return custom.isEmpty ? null : custom;
+    }
+    return _selectedMood;
   }
 
   Future<void> _pickTravelDate() async {
@@ -67,6 +90,7 @@ class _EditMediaViewState extends State<EditMediaView> {
     _titleController.dispose();
     _storyController.dispose();
     _tagController.dispose();
+    _customMoodController.dispose();
     super.dispose();
   }
 
@@ -92,10 +116,11 @@ class _EditMediaViewState extends State<EditMediaView> {
       filePath: widget.media.filePath,
       type: widget.media.type,
       grading: _rating,
-      moodRating: _selectedMood,
-      fileName: _titleController.text.trim().isEmpty
-          ? widget.media.fileName
-          : _titleController.text.trim(),
+      mood: _resolvedMood,
+      // The technical file name is never touched by editing -- only the
+      // caption (title) the person writes changes here.
+      fileName: widget.media.fileName,
+      title: _titleController.text.trim().isEmpty ? null : _titleController.text.trim(),
       lastModification: widget.media.lastModification,
       tags: _tags,
       storyNote: _storyController.text.trim(),
@@ -208,7 +233,7 @@ class _EditMediaViewState extends State<EditMediaView> {
                 builder: (_) => FullscreenImageView(
                   imageUrl: media.publicUrl,
                   memoryBytes: media.memoryBytes,
-                  title: media.fileName,
+                  title: media.displayTitle,
                 ),
               ),
             );
@@ -242,6 +267,8 @@ class _EditMediaViewState extends State<EditMediaView> {
           controller: _titleController,
           decoration: const InputDecoration(
             labelText: 'Title',
+            hintText: 'e.g. Sunset over the hills',
+            helperText: "Just a caption — it won't rename the picture file.",
             prefixIcon: Icon(Icons.label_outline),
             border: OutlineInputBorder(),
           ),
@@ -264,54 +291,21 @@ class _EditMediaViewState extends State<EditMediaView> {
         ),
         const SizedBox(height: 24),
 
-        // My Work vs General World
-        Text(
-          'Where does this picture live?',
-          style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+        // Publishing: a single, unmistakable action instead of two small
+        // toggle chips that looked equally "on" — a private picture gets
+        // one big call-to-action button, a published one gets a clear
+        // status line plus a small way to change its mind.
+        _PublishSection(
+          visibility: _visibility,
+          category: _category,
+          onPublish: (category) {
+            setState(() {
+              _visibility = MediaVisibility.public;
+              _category = category;
+            });
+          },
+          onUnpublish: () => setState(() => _visibility = MediaVisibility.private),
         ),
-        const SizedBox(height: 4),
-        Text(
-          'My Work stays private to you. General World is the public feed.',
-          style: theme.textTheme.bodySmall?.copyWith(color: theme.hintColor),
-        ),
-        const SizedBox(height: 12),
-        Wrap(
-          spacing: 8,
-          children: [
-            ChoiceChip(
-              avatar: const Icon(Icons.lock_outline, size: 16),
-              label: const Text('My Work'),
-              selected: !_visibility.isPublic,
-              onSelected: (_) => setState(() => _visibility = MediaVisibility.private),
-            ),
-            ChoiceChip(
-              avatar: const Icon(Icons.public, size: 16),
-              label: const Text('General World'),
-              selected: _visibility.isPublic,
-              onSelected: (_) => setState(() => _visibility = MediaVisibility.public),
-            ),
-          ],
-        ),
-        if (_visibility.isPublic) ...[
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            children: [
-              ChoiceChip(
-                label: const Text('Personal trip'),
-                selected: _category == MediaCategory.personalTrip,
-                onSelected: (_) =>
-                    setState(() => _category = MediaCategory.personalTrip),
-              ),
-              ChoiceChip(
-                label: const Text('Work / Portfolio'),
-                selected: _category == MediaCategory.workPortfolio,
-                onSelected: (_) =>
-                    setState(() => _category = MediaCategory.workPortfolio),
-              ),
-            ],
-          ),
-        ],
         const SizedBox(height: 24),
 
         // Rating
@@ -355,20 +349,32 @@ class _EditMediaViewState extends State<EditMediaView> {
           style: theme.textTheme.bodySmall?.copyWith(color: theme.hintColor),
         ),
         const SizedBox(height: 12),
-        Wrap(
-          spacing: 8.0,
-          runSpacing: 8.0,
-          children: List.generate(Media.emotionLabels.length, (index) {
-            final isSelected = _selectedMood == index;
-            return ChoiceChip(
-              label: Text(Media.emotionLabels[index]),
-              selected: isSelected,
-              onSelected: (selected) {
-                if (selected) setState(() => _selectedMood = index);
-              },
-            );
-          }),
+        DropdownButtonFormField<String>(
+          value: _selectedMood,
+          isExpanded: true,
+          decoration: const InputDecoration(
+            border: OutlineInputBorder(),
+            prefixIcon: Icon(Icons.mood_outlined),
+          ),
+          hint: const Text('Choose a feeling'),
+          items: [
+            for (final label in Media.standardMoods)
+              DropdownMenuItem(value: label, child: Text(label)),
+            const DropdownMenuItem(value: _otherMoodOption, child: Text('\u2795 Other...')),
+          ],
+          onChanged: (value) => setState(() => _selectedMood = value),
         ),
+        if (_selectedMood == _otherMoodOption) ...[
+          const SizedBox(height: 12),
+          TextField(
+            controller: _customMoodController,
+            decoration: const InputDecoration(
+              labelText: 'Your own feeling',
+              hintText: 'e.g. Homesick, Adventurous...',
+              border: OutlineInputBorder(),
+            ),
+          ),
+        ],
         const SizedBox(height: 24),
 
         // Storia
@@ -469,6 +475,217 @@ class _EditMediaViewState extends State<EditMediaView> {
           controller: _detailsScrollController,
           padding: const EdgeInsets.all(24.0),
           child: content,
+        ),
+      ),
+    );
+  }
+}
+
+/// The "publish this picture" call to action. A private picture gets one
+/// big, unmistakable button; a published one gets a clear status line
+/// plus small, secondary ways to change category or un-publish.
+class _PublishSection extends StatelessWidget {
+  final MediaVisibility visibility;
+  final MediaCategory category;
+  final void Function(MediaCategory category) onPublish;
+  final VoidCallback onUnpublish;
+
+  const _PublishSection({
+    required this.visibility,
+    required this.category,
+    required this.onPublish,
+    required this.onUnpublish,
+  });
+
+  Future<void> _openCategoryPicker(BuildContext context) async {
+    final chosen = await showModalBottomSheet<MediaCategory>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => const _CategoryPickerSheet(),
+    );
+    if (chosen != null) onPublish(chosen);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    if (!visibility.isPublic) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Ready to share it?',
+            style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Right now only you can see this picture, in "My Work".',
+            style: theme.textTheme.bodySmall?.copyWith(color: theme.hintColor),
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            height: 56,
+            child: FilledButton.icon(
+              style: FilledButton.styleFrom(
+                backgroundColor: theme.colorScheme.tertiary,
+                foregroundColor: theme.colorScheme.onTertiary,
+                textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+              onPressed: () => _openCategoryPicker(context),
+              icon: const Icon(Icons.public, size: 22),
+              label: const Text('PUBLISH TO GENERAL WORLD'),
+            ),
+          ),
+        ],
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.tertiaryContainer.withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: theme.colorScheme.tertiary.withValues(alpha: 0.4)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.public, color: theme.colorScheme.tertiary),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Published to General World \u00b7 ${category.label}',
+                  style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              OutlinedButton.icon(
+                onPressed: () => _openCategoryPicker(context),
+                icon: const Icon(Icons.swap_horiz, size: 16),
+                label: const Text('Change category'),
+              ),
+              TextButton.icon(
+                onPressed: onUnpublish,
+                icon: const Icon(Icons.undo, size: 16),
+                label: const Text('Move back to My Work'),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The sheet opened by the big publish button (and by "Change category"):
+/// asking the question at the exact moment it matters, instead of showing
+/// it as an always-visible toggle most people would ignore.
+class _CategoryPickerSheet extends StatelessWidget {
+  const _CategoryPickerSheet();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 20, 20, 28),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Where does this trip belong?',
+              style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'This decides which section of General World shows it.',
+              style: theme.textTheme.bodySmall?.copyWith(color: theme.hintColor),
+            ),
+            const SizedBox(height: 20),
+            _CategoryOptionCard(
+              icon: Icons.luggage_outlined,
+              title: 'Personal trip',
+              subtitle: 'A holiday, a weekend away, a place you visited for yourself.',
+              onTap: () => Navigator.pop(context, MediaCategory.personalTrip),
+            ),
+            const SizedBox(height: 12),
+            _CategoryOptionCard(
+              icon: Icons.work_outline,
+              title: 'Work / Portfolio',
+              subtitle: 'A work trip, a shoot, or anything meant to showcase your work.',
+              onTap: () => Navigator.pop(context, MediaCategory.workPortfolio),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CategoryOptionCard extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  const _CategoryOptionCard({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Material(
+      color: theme.colorScheme.surfaceContainerHigh,
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              CircleAvatar(
+                radius: 22,
+                backgroundColor: theme.colorScheme.primaryContainer,
+                child: Icon(icon, color: theme.colorScheme.onPrimaryContainer),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      style: theme.textTheme.bodySmall?.copyWith(color: theme.hintColor),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(Icons.chevron_right),
+            ],
+          ),
         ),
       ),
     );

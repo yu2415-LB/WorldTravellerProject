@@ -17,8 +17,24 @@ class Media {
   String filePath;
   final MediaType type;
   double grading;
-  int moodRating;
+
+  /// Freeform "how does it make you feel" text. Either one of
+  /// [standardMoods] or something the person typed themselves after
+  /// picking "Other..." — [isStandardMood] tells the two apart.
+  String? mood;
+
+  /// The technical name of the uploaded file (e.g.
+  /// "IMG_8410_Original.jpeg"). Never shown to the person and never
+  /// edited by them — see [title] for the caption they actually write.
   String fileName;
+
+  /// The caption the traveller gives their picture ("Sunset over the
+  /// hills"). Kept separate from [fileName] on purpose: editing the
+  /// title must never rename the underlying file, and a raw file name
+  /// (extension included) is not something anyone should see as a
+  /// "title" in the first place.
+  String? title;
+
   final DateTime lastModification;
   final List<String> tags;
   String? storyNote;
@@ -57,13 +73,18 @@ class Media {
     '\u{1F343} At peace',
   ];
 
+  /// Alias kept for readability where the list is used as "the standard,
+  /// selectable moods" rather than as display labels.
+  static const List<String> standardMoods = emotionLabels;
+
   Media({
     String? id,
     required this.filePath,
     required this.type,
     required this.grading,
-    required this.moodRating,
+    this.mood,
     required this.fileName,
+    this.title,
     required this.lastModification,
     required this.tags,
     this.storyNote,
@@ -84,12 +105,19 @@ class Media {
   @override
   int get hashCode => id.hashCode;
 
-  String get emotionLabel {
-    if (moodRating >= 0 && moodRating < emotionLabels.length) {
-      return emotionLabels[moodRating];
-    }
-    return emotionLabels[0];
+  /// What to show as this picture's title: the caption the person wrote,
+  /// or a plain, friendly placeholder — never the raw uploaded file name.
+  String get displayTitle {
+    final t = title?.trim();
+    return (t != null && t.isNotEmpty) ? t : 'Untitled memory';
   }
+
+  /// The mood text to show, or null when none was ever picked.
+  String? get emotionLabel => (mood != null && mood!.trim().isNotEmpty) ? mood : null;
+
+  /// True when [mood] is one of the five preset feelings rather than
+  /// something the person typed in after choosing "Other...".
+  bool get isStandardMood => mood != null && standardMoods.contains(mood);
 
   /// URL to feed into Image.network.
   /// Returns remoteUrl when set, or filePath when it already is a http(s) URL.
@@ -121,8 +149,9 @@ class Media {
       'path': filePath,
       'type': type.name,
       'grading': grading,
-      'moodRating': moodRating,
+      'mood': mood,
       'name': fileName,
+      'title': title,
       'lastModification': lastModification.toIso8601String(),
       'tags': tags,
       'storyNote': storyNote,
@@ -141,8 +170,9 @@ class Media {
       filePath: json['path'] as String? ?? '',
       type: MediaType.image,
       grading: (json['grading'] as num?)?.toDouble() ?? 0.0,
-      moodRating: (json['moodRating'] as num?)?.toInt() ?? 0,
+      mood: _readMood(json['mood'], json['moodRating']),
       fileName: json['name'] as String? ?? 'Memory',
+      title: json['title'] as String?,
       lastModification: json['lastModification'] != null
           ? DateTime.tryParse(json['lastModification'] as String) ?? DateTime.now()
           : DateTime.now(),
@@ -165,8 +195,9 @@ class Media {
       filePath: row['storage_path'] as String? ?? '',
       type: MediaType.image,
       grading: (row['grading'] as num?)?.toDouble() ?? 0.0,
-      moodRating: (row['mood_rating'] as num?)?.toInt() ?? 0,
+      mood: _readMood(row['mood'], row['mood_rating']),
       fileName: row['file_name'] as String? ?? 'Memory',
+      title: row['title'] as String?,
       lastModification: row['last_modification'] != null
           ? DateTime.tryParse(row['last_modification'] as String) ?? DateTime.now()
           : DateTime.now(),
@@ -182,6 +213,19 @@ class Media {
     );
   }
 
+  /// Reads the freeform mood text, falling back to translating an old
+  /// numeric `mood_rating` index (from before this field existed) into
+  /// its matching label, so rows saved by an older version of the app
+  /// still show a sensible mood instead of nothing.
+  static String? _readMood(dynamic moodValue, dynamic legacyIndex) {
+    if (moodValue is String && moodValue.trim().isNotEmpty) return moodValue;
+    final index = (legacyIndex as num?)?.toInt();
+    if (index != null && index >= 0 && index < emotionLabels.length) {
+      return emotionLabels[index];
+    }
+    return null;
+  }
+
   Map<String, dynamic> toSupabase(String locationId, String fallbackUserId) {
     return {
       'id': id,
@@ -193,8 +237,9 @@ class Media {
       'storage_path': filePath,
       'type': type.name,
       'file_name': fileName,
+      'title': title,
       'grading': grading,
-      'mood_rating': moodRating,
+      'mood': mood,
       'tags': tags,
       'story_note': storyNote,
       'last_modification': lastModification.toIso8601String(),

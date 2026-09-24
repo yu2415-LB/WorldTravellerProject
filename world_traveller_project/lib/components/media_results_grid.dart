@@ -69,10 +69,10 @@ class MediaResultsGrid extends StatelessWidget {
       gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
         // Fase 3, punto 13/14: margini ridotti per vedere più foto senza
         // scorrere troppo, coerente con il feed principale.
-        maxCrossAxisExtent: 170,
-        crossAxisSpacing: 4,
-        mainAxisSpacing: 4,
-        childAspectRatio: 1,
+        maxCrossAxisExtent: 220,
+        crossAxisSpacing: 10,
+        mainAxisSpacing: 10,
+        childAspectRatio: 0.8,
       ),
       itemCount: items.length,
       itemBuilder: (context, index) {

@@ -24,6 +24,12 @@ class _MediaCollectionViewState extends State<MediaCollectionView> {
   double? _minRatingFilter;
   String? _tagFilter;
 
+  /// "How does it make you feel" filter: null = any, one of
+  /// Media.standardMoods, or [_otherMoodFilter] = every picture whose
+  /// mood is a custom text typed after choosing "Other...".
+  String? _moodFilter;
+  static const _otherMoodFilter = 'Other...';
+
   // Fase 3, punto 17 (migliorato): città, regione e nazione sono ora tre
   // filtri indipendenti — prima cliccare il nome applicava solo un
   // filtro testuale sulla città. _geoFilterType/_geoFilterValue tengono
@@ -35,7 +41,10 @@ class _MediaCollectionViewState extends State<MediaCollectionView> {
   final TextEditingController _searchController = TextEditingController();
 
   bool get _hasActiveFilters =>
-      _minRatingFilter != null || _tagFilter != null || _geoFilterType != null;
+      _minRatingFilter != null ||
+      _tagFilter != null ||
+      _moodFilter != null ||
+      _geoFilterType != null;
 
   void _setSearch(String value) {
     setState(() => _searchQuery = value);
@@ -133,11 +142,16 @@ class _MediaCollectionViewState extends State<MediaCollectionView> {
       final matchesQuery = _searchQuery.isEmpty || loc.matchesQuery(_searchQuery);
 
       final matchedList = loc.mediaSet.where((m) {
-        final matchesSearch =
-            matchesQuery || m.fileName.toLowerCase().contains(_searchQuery.toLowerCase());
+        final matchesSearch = matchesQuery ||
+            m.fileName.toLowerCase().contains(_searchQuery.toLowerCase()) ||
+            (m.title ?? '').toLowerCase().contains(_searchQuery.toLowerCase());
         final matchesRating = _minRatingFilter == null || m.grading >= _minRatingFilter!;
         final matchesTag = _tagFilter == null || m.tags.contains(_tagFilter);
-        return matchesSearch && matchesRating && matchesTag;
+        final matchesMood = _moodFilter == null ||
+            (_moodFilter == _otherMoodFilter
+                ? (m.emotionLabel != null && !m.isStandardMood)
+                : m.mood == _moodFilter);
+        return matchesSearch && matchesRating && matchesTag && matchesMood;
       }).toList();
 
       if (matchedList.isNotEmpty) {
@@ -237,11 +251,40 @@ class _MediaCollectionViewState extends State<MediaCollectionView> {
                       ),
                       const SizedBox(width: 8),
                     ],
+                    DropdownButtonHideUnderline(
+                      child: DropdownButton<String?>(
+                        value: _moodFilter,
+                        hint: const Text('Feeling'),
+                        borderRadius: BorderRadius.circular(8),
+                        dropdownColor: Theme.of(context).colorScheme.surfaceContainerHigh,
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: Theme.of(context).colorScheme.onSurface,
+                        ),
+                        menuMaxHeight: 420,
+                        items: [
+                          const DropdownMenuItem<String?>(
+                            value: null,
+                            child: Text('Any feeling'),
+                          ),
+                          ...Media.standardMoods.map(
+                            (label) => DropdownMenuItem<String?>(value: label, child: Text(label)),
+                          ),
+                          const DropdownMenuItem<String?>(
+                            value: _otherMoodFilter,
+                            child: Text('\u2795 Other...'),
+                          ),
+                        ],
+                        onChanged: (value) => setState(() => _moodFilter = value),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
                     if (_hasActiveFilters)
                       TextButton.icon(
                         onPressed: () => setState(() {
                           _minRatingFilter = null;
                           _tagFilter = null;
+                          _moodFilter = null;
                           _geoFilterType = null;
                           _geoFilterValue = null;
                         }),
@@ -352,10 +395,10 @@ class _MediaCollectionViewState extends State<MediaCollectionView> {
                               // Fase 3, punto 13/14: margini e dimensione
                               // minima ridotti per mostrare più foto a
                               // schermo senza scorrere troppo.
-                              maxCrossAxisExtent: 170,
-                              crossAxisSpacing: 4,
-                              mainAxisSpacing: 4,
-                              childAspectRatio: 1,
+                              maxCrossAxisExtent: 220,
+                              crossAxisSpacing: 10,
+                              mainAxisSpacing: 10,
+                              childAspectRatio: 0.8,
                             ),
                             itemCount: mediaItems.length,
                             itemBuilder: (context, index) {

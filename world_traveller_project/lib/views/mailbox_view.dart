@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:world_traveller_project/models/mailbox_message.dart';
+import 'package:world_traveller_project/models/user_profile.dart';
 import 'package:world_traveller_project/providers/social_controller.dart';
 import 'package:world_traveller_project/views/user_profile_view.dart';
 
@@ -56,6 +57,34 @@ class _MailboxViewState extends State<MailboxView> {
     }
   }
 
+  Future<void> _accept(MailboxMessage message) async {
+    final social = context.read<SocialController>();
+    final messenger = ScaffoldMessenger.of(context);
+    setState(() => _messages?.removeWhere((m) => m.id == message.id));
+    try {
+      await social.acceptContactRequest(message);
+      messenger.showSnackBar(SnackBar(
+        content: Text('Accepted. ${message.senderProfile?.fullName ?? 'They'} will be notified.'),
+      ));
+    } catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text('Could not accept: $e')));
+      if (mounted) _load();
+    }
+  }
+
+  Future<void> _decline(MailboxMessage message) async {
+    final social = context.read<SocialController>();
+    setState(() => _messages?.removeWhere((m) => m.id == message.id));
+    try {
+      await social.declineContactRequest(message.id);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Could not decline: $e')));
+      _load();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final messages = _messages ?? const [];
@@ -82,7 +111,12 @@ class _MailboxViewState extends State<MailboxView> {
                     itemCount: messages.length,
                     separatorBuilder: (_, __) => const SizedBox(height: 8),
                     itemBuilder: (context, index) =>
-                        _MailboxTile(message: messages[index], onDelete: _delete),
+                        _MailboxTile(
+                      message: messages[index],
+                      onDelete: _delete,
+                      onAccept: _accept,
+                      onDecline: _decline,
+                    ),
                   ),
                 ),
     );
@@ -126,8 +160,27 @@ class _EmptyMailbox extends StatelessWidget {
 class _MailboxTile extends StatelessWidget {
   final MailboxMessage message;
   final Future<void> Function(MailboxMessage) onDelete;
+  final Future<void> Function(MailboxMessage) onAccept;
+  final Future<void> Function(MailboxMessage) onDecline;
 
-  const _MailboxTile({required this.message, required this.onDelete});
+  const _MailboxTile({
+    required this.message,
+    required this.onDelete,
+    required this.onAccept,
+    required this.onDecline,
+  });
+
+  void _openProfile(BuildContext context, UserProfile sender) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => UserProfileView(
+          userId: sender.id,
+          preloadedProfile: sender,
+        ),
+      ),
+    );
+  }
 
   String _timeAgo(DateTime dt) {
     final diff = DateTime.now().difference(dt);
@@ -229,7 +282,11 @@ class _MailboxTile extends StatelessWidget {
                             text: name,
                             style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
                           ),
-                          const TextSpan(text: ' would like you to get in touch'),
+                          TextSpan(
+                            text: message.isContactAccepted
+                                ? ' accepted your request \u2014 you can get in touch now!'
+                                : ' would like you to get in touch',
+                          ),
                         ],
                       ),
                     ),
@@ -243,28 +300,48 @@ class _MailboxTile extends StatelessWidget {
                           : Colors.grey.shade600,
                     ),
                   ),
+                  if (message.isContactRequest) ...[
+                    const SizedBox(height: 10),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        FilledButton.icon(
+                          icon: const Icon(Icons.check, size: 18),
+                          label: const Text('Accept'),
+                          onPressed: () => onAccept(message),
+                        ),
+                        OutlinedButton.icon(
+                          icon: const Icon(Icons.close, size: 18),
+                          label: const Text('Decline'),
+                          onPressed: () => onDecline(message),
+                        ),
+                        if (sender != null)
+                          TextButton.icon(
+                            icon: const Icon(Icons.person_outline, size: 18),
+                            label: const Text('View profile'),
+                            onPressed: () => _openProfile(context, sender),
+                          ),
+                      ],
+                    ),
+                  ],
                 ],
               ),
             ),
-            if (!message.isWarning && sender != null)
-              IconButton(
-                tooltip: 'View profile',
-                icon: const Icon(Icons.person_outline),
-                onPressed: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => UserProfileView(
-                      userId: sender.id,
-                      preloadedProfile: sender,
-                    ),
-                  ),
+            const SizedBox(width: 8),
+            if (!message.isContactRequest) ...[
+              if (message.isContactAccepted && sender != null)
+                FilledButton.tonalIcon(
+                  icon: const Icon(Icons.person_outline, size: 18),
+                  label: const Text('View profile'),
+                  onPressed: () => _openProfile(context, sender),
                 ),
+              IconButton(
+                tooltip: 'Dismiss',
+                icon: const Icon(Icons.close, size: 18),
+                onPressed: () => onDelete(message),
               ),
-            IconButton(
-              tooltip: 'Delete',
-              icon: const Icon(Icons.close, size: 18),
-              onPressed: () => onDelete(message),
-            ),
+            ],
           ],
         ),
       ),

@@ -168,6 +168,25 @@ class SocialController extends ChangeNotifier {
     await refreshMailboxCount();
   }
 
+  /// Accepts a "please get in touch" request: the person who asked is
+  /// told, and the request leaves this mailbox.
+  Future<void> acceptContactRequest(MailboxMessage request) async {
+    final userId = _currentUserId;
+    if (userId == null) return;
+    await _mailboxService.acceptContactRequest(
+      requestId: request.id,
+      accepterId: userId,
+      requesterId: request.senderId,
+    );
+    await refreshMailboxCount();
+  }
+
+  /// Declines a request silently (the other person is not notified).
+  Future<void> declineContactRequest(String requestId) async {
+    await _mailboxService.declineContactRequest(requestId);
+    await refreshMailboxCount();
+  }
+
   Future<void> deleteMailboxMessage(String messageId) async {
     await _mailboxService.deleteMessage(messageId);
     await refreshMailboxCount();

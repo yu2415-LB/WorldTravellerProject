@@ -72,7 +72,7 @@ class _PreviewViewState extends State<PreviewView> {
       builder: (ctx) => AlertDialog(
         title: const Text('Delete memory'),
         content: Text(
-          'Do you really want to delete "${_currentMedia.fileName}"? '
+          'Do you really want to delete "${_currentMedia.displayTitle}"? '
           'This cannot be undone.',
         ),
         actions: [
@@ -172,7 +172,7 @@ class _PreviewViewState extends State<PreviewView> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(_currentMedia.fileName),
+        title: Text(_currentMedia.displayTitle),
         actions: [
           IconButton(
             tooltip: isFavourite ? 'Remove from favourites' : 'Add to favourites',
@@ -265,7 +265,7 @@ class _PreviewViewState extends State<PreviewView> {
                 builder: (_) => FullscreenImageView(
                   imageUrl: media.publicUrl,
                   memoryBytes: media.memoryBytes,
-                  title: media.fileName,
+                  title: media.displayTitle,
                 ),
               ),
             );
@@ -342,7 +342,7 @@ class _PreviewViewState extends State<PreviewView> {
                   ),
                   Chip(
                     avatar: const Icon(Icons.mood, size: 16),
-                    label: Text(media.emotionLabel),
+                    label: Text(media.emotionLabel ?? 'No feeling set'),
                     backgroundColor:
                         theme.colorScheme.primaryContainer.withValues(alpha: 0.5),
                   ),

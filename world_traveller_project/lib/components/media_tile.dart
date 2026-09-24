@@ -60,7 +60,7 @@ class _MediaTileState extends State<MediaTile> {
       onEnter: (_) => setState(() => _isHovered = true),
       onExit: (_) => setState(() => _isHovered = false),
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(18),
         child: Container(
           color: Theme.of(context).colorScheme.surfaceContainerHighest,
           child: InkWell(
@@ -199,6 +199,60 @@ class _MediaTileState extends State<MediaTile> {
         // Fase 3, punto 15: rimosso dalla vista a griglia per non coprire
         // l'immagine — resta solo il pulsante Preferiti in alto a
         // sinistra. Il voto è comunque visibile aprendo la foto.
+
+        // Caption card: soft dark gradient along the bottom with the
+        // picture's title (never the file name) and the star rating.
+        Positioned(
+          left: 0,
+          right: 0,
+          bottom: 0,
+          child: IgnorePointer(
+            child: Container(
+              padding: const EdgeInsets.fromLTRB(12, 28, 12, 10),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Colors.transparent,
+                    Colors.black.withValues(alpha: 0.72),
+                  ],
+                ),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    media.displayTitle,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 14,
+                      height: 1.15,
+                    ),
+                  ),
+                  if (media.grading > 0) ...[
+                    const SizedBox(height: 3),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.star_rounded, size: 14, color: Colors.amber),
+                        const SizedBox(width: 2),
+                        Text(
+                          media.grading.toStringAsFixed(media.grading % 1 == 0 ? 0 : 1),
+                          style: const TextStyle(color: Colors.white70, fontSize: 12),
+                        ),
+                      ],
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ),
 
         // Author name along the bottom.
         // Fase 3, punto 15: rimosso dalla vista a griglia per lo stesso

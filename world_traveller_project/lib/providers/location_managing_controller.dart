@@ -327,7 +327,6 @@ class LocationManagingController extends ChangeNotifier {
       filePath: uploadResult.storagePath,
       type: type,
       grading: 0,
-      moodRating: 0,
       fileName: fileName,
       lastModification: DateTime.now(),
       tags: const [],

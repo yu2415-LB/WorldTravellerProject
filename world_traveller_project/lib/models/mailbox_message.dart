@@ -6,6 +6,10 @@ enum MailboxMessageType {
   /// contact request. Carries no free text.
   contactRequest,
 
+  /// "X accepted your request — you can get in touch now". Created
+  /// when the recipient of a [contactRequest] taps Accept.
+  contactAccepted,
+
   /// A warning from the administrator about a terms-of-use violation,
   /// sent before any account gets blocked. Carries [MailboxMessage.body].
   warning;
@@ -14,6 +18,8 @@ enum MailboxMessageType {
     switch (value) {
       case 'warning':
         return MailboxMessageType.warning;
+      case 'contact_accepted':
+        return MailboxMessageType.contactAccepted;
       case 'contact_request':
       default:
         return MailboxMessageType.contactRequest;
@@ -23,6 +29,7 @@ enum MailboxMessageType {
   String toDb() => switch (this) {
         MailboxMessageType.warning => 'warning',
         MailboxMessageType.contactRequest => 'contact_request',
+        MailboxMessageType.contactAccepted => 'contact_accepted',
       };
 }
 
@@ -59,6 +66,8 @@ class MailboxMessage {
   });
 
   bool get isWarning => type == MailboxMessageType.warning;
+  bool get isContactRequest => type == MailboxMessageType.contactRequest;
+  bool get isContactAccepted => type == MailboxMessageType.contactAccepted;
 
   factory MailboxMessage.fromSupabase(
     Map<String, dynamic> row, {
