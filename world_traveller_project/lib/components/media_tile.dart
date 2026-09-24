@@ -21,6 +21,10 @@ class MediaTile extends StatefulWidget {
   /// Called when the author's name is tapped, to open that traveller's page.
   final void Function(String userId)? onAuthorTap;
 
+  /// Masonry mode: the tile takes the picture's own proportions
+  /// (full width, natural height) instead of filling a fixed box.
+  final bool natural;
+
   const MediaTile({
     super.key,
     required this.media,
@@ -31,6 +35,7 @@ class MediaTile extends StatefulWidget {
     this.showFavouriteButton = true,
     this.showAuthor = true,
     this.onAuthorTap,
+    this.natural = false,
   });
 
   @override
@@ -82,16 +87,18 @@ class _MediaTileState extends State<MediaTile> {
     if (bytes != null && bytes.isNotEmpty) {
       mediaWidget = Image.memory(
         bytes,
-        fit: BoxFit.cover,
+        fit: widget.natural ? BoxFit.fitWidth : BoxFit.cover,
+        width: widget.natural ? double.infinity : null,
         errorBuilder: (context, error, stackTrace) => _buildFallbackIcon(),
       );
     } else if (url != null && url.isNotEmpty) {
       mediaWidget = Image.network(
         url,
-        fit: BoxFit.cover,
+        fit: widget.natural ? BoxFit.fitWidth : BoxFit.cover,
+        width: widget.natural ? double.infinity : null,
         loadingBuilder: (context, child, progress) {
           if (progress == null) return child;
-          return Center(
+          final spinner = Center(
             child: CircularProgressIndicator(
               strokeWidth: 2,
               value: progress.expectedTotalBytes != null
@@ -99,6 +106,7 @@ class _MediaTileState extends State<MediaTile> {
                   : null,
             ),
           );
+          return widget.natural ? AspectRatio(aspectRatio: 1, child: spinner) : spinner;
         },
         errorBuilder: (context, error, stackTrace) => _buildFallbackIcon(),
       );
@@ -110,12 +118,13 @@ class _MediaTileState extends State<MediaTile> {
     final isFavourite = social.isFavourite(media.id);
 
     return Stack(
-      fit: StackFit.expand,
+      fit: widget.natural ? StackFit.loose : StackFit.expand,
       children: [
         mediaWidget,
 
         // Hover overlay
-        AnimatedOpacity(
+        Positioned.fill(
+          child: AnimatedOpacity(
           duration: const Duration(milliseconds: 150),
           opacity: _isHovered ? 1.0 : 0.0,
           child: IgnorePointer(
@@ -139,6 +148,7 @@ class _MediaTileState extends State<MediaTile> {
               ),
             ),
           ),
+        ),
         ),
 
         // Favourite (like) button, top-left corner.
@@ -263,11 +273,12 @@ class _MediaTileState extends State<MediaTile> {
   }
 
   Widget _buildFallbackIcon() {
-    return Container(
+    final box = Container(
       color: Colors.grey.shade200,
       child: Center(
         child: Icon(Icons.image, size: 40, color: Colors.grey.shade400),
       ),
     );
+    return widget.natural ? AspectRatio(aspectRatio: 1, child: box) : box;
   }
 }

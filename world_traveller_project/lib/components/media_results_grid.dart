@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:world_traveller_project/components/masonry_grid.dart';
 import 'package:world_traveller_project/components/media_tile.dart';
 import 'package:world_traveller_project/models/location.dart';
 import 'package:world_traveller_project/models/media.dart';
@@ -64,39 +65,34 @@ class MediaResultsGrid extends StatelessWidget {
       );
     }
 
-    return GridView.builder(
-      padding: const EdgeInsets.all(10),
-      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-        // Fase 3, punto 13/14: margini ridotti per vedere più foto senza
-        // scorrere troppo, coerente con il feed principale.
-        maxCrossAxisExtent: 220,
-        crossAxisSpacing: 10,
-        mainAxisSpacing: 10,
-        childAspectRatio: 0.8,
-      ),
-      itemCount: items.length,
-      itemBuilder: (context, index) {
-        final entry = items[index];
-        return MediaTile(
-          media: entry.media,
-          isSelected: false,
-          isSelecting: false,
-          onSelectionChanged: () {},
-          onAuthorTap: onAuthorTap,
-          onTap: () async {
-            await Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => PreviewView(
-                  media: entry.media,
-                  location: entry.location,
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(12),
+      child: MasonryGrid(
+        itemCount: items.length,
+        itemBuilder: (context, index) {
+          final entry = items[index];
+          return MediaTile(
+            natural: true,
+            media: entry.media,
+            isSelected: false,
+            isSelecting: false,
+            onSelectionChanged: () {},
+            onAuthorTap: onAuthorTap,
+            onTap: () async {
+              await Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => PreviewView(
+                    media: entry.media,
+                    location: entry.location,
+                  ),
                 ),
-              ),
-            );
-            onChanged?.call();
-          },
-        );
-      },
+              );
+              onChanged?.call();
+            },
+          );
+        },
+      ),
     );
   }
 }

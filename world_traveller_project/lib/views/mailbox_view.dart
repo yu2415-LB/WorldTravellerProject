@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:world_traveller_project/models/mailbox_message.dart';
 import 'package:world_traveller_project/models/user_profile.dart';
@@ -64,7 +65,8 @@ class _MailboxViewState extends State<MailboxView> {
     try {
       await social.acceptContactRequest(message);
       messenger.showSnackBar(SnackBar(
-        content: Text('Accepted. ${message.senderProfile?.fullName ?? 'They'} will be notified.'),
+        content: Text(
+            'Accepted. ${message.senderProfile?.fullName ?? 'They'} can now see your email.'),
       ));
     } catch (e) {
       messenger.showSnackBar(SnackBar(content: Text('Could not accept: $e')));
@@ -300,6 +302,14 @@ class _MailboxTile extends StatelessWidget {
                           : Colors.grey.shade600,
                     ),
                   ),
+                  if (message.isContactAccepted) ...[
+                    const SizedBox(height: 10),
+                    _SharedEmail(
+                      email: (message.body != null && message.body!.trim().isNotEmpty)
+                          ? message.body!.trim()
+                          : sender?.email,
+                    ),
+                  ],
                   if (message.isContactRequest) ...[
                     const SizedBox(height: 10),
                     Wrap(
@@ -344,6 +354,59 @@ class _MailboxTile extends StatelessWidget {
             ],
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// The email an accepted traveller chose to share, with a copy button.
+class _SharedEmail extends StatelessWidget {
+  final String? email;
+  const _SharedEmail({required this.email});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final address = email;
+
+    if (address == null || address.isEmpty) {
+      return Text(
+        'No email available for this traveller.',
+        style: TextStyle(fontSize: 12.5, color: theme.colorScheme.onSurfaceVariant),
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.tertiaryContainer.withValues(alpha: 0.6),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.alternate_email, size: 18, color: theme.colorScheme.onTertiaryContainer),
+          const SizedBox(width: 8),
+          Flexible(
+            child: SelectableText(
+              address,
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                color: theme.colorScheme.onTertiaryContainer,
+              ),
+            ),
+          ),
+          const SizedBox(width: 4),
+          TextButton.icon(
+            icon: const Icon(Icons.copy, size: 16),
+            label: const Text('Copy'),
+            onPressed: () async {
+              final messenger = ScaffoldMessenger.of(context);
+              await Clipboard.setData(ClipboardData(text: address));
+              messenger.showSnackBar(const SnackBar(content: Text('Email copied')));
+            },
+          ),
+        ],
       ),
     );
   }

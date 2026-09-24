@@ -177,6 +177,7 @@ class SocialController extends ChangeNotifier {
       requestId: request.id,
       accepterId: userId,
       requesterId: request.senderId,
+      accepterEmail: _client.auth.currentUser?.email,
     );
     await refreshMailboxCount();
   }

@@ -40,11 +40,15 @@ class MailboxService {
     required String requestId,
     required String accepterId,
     required String requesterId,
+    String? accepterEmail,
   }) async {
+    // The email travels in `body`: only the person who was accepted
+    // can read this row, so it is shared with them and nobody else.
     await _client.from(_table).insert({
       'sender_id': accepterId,
       'recipient_id': requesterId,
       'type': 'contact_accepted',
+      if (accepterEmail != null && accepterEmail.isNotEmpty) 'body': accepterEmail,
     });
     await _client.from(_table).delete().eq('id', requestId);
   }

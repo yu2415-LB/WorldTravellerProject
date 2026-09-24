@@ -1451,7 +1451,9 @@ class _MapViewState extends State<MapView> {
                           Positioned(
                             top: 0,
                             bottom: 0,
-                            right: -20,
+                            // Inside the panel's edge (it used to stick out
+                            // 20px and got half-covered by the map).
+                            right: 6,
                             child: Center(
                               child: Tooltip(
                                 message: _sidebarExpanded
@@ -1461,9 +1463,13 @@ class _MapViewState extends State<MapView> {
                                   // Filled with the accent colour so the
                                   // handle is impossible to miss.
                                   color: Theme.of(context).colorScheme.primary,
-                                  elevation: 4,
+                                  elevation: 6,
                                   shape: RoundedRectangleBorder(
                                     borderRadius: BorderRadius.circular(22),
+                                    side: BorderSide(
+                                      color: Theme.of(context).colorScheme.onPrimary,
+                                      width: 2,
+                                    ),
                                   ),
                                   child: InkWell(
                                     borderRadius: BorderRadius.circular(22),
@@ -1471,7 +1477,7 @@ class _MapViewState extends State<MapView> {
                                       () => _sidebarExpanded = !_sidebarExpanded,
                                     ),
                                     child: SizedBox(
-                                      width: 40,
+                                      width: 44,
                                       height: 96,
                                       child: Center(
                                         child: AnimatedRotation(
@@ -1479,7 +1485,7 @@ class _MapViewState extends State<MapView> {
                                           turns: _sidebarExpanded ? 0.5 : 0,
                                           child: Icon(
                                             Icons.chevron_right,
-                                            size: 30,
+                                            size: 34,
                                             color: Theme.of(context)
                                                 .colorScheme
                                                 .onPrimary,

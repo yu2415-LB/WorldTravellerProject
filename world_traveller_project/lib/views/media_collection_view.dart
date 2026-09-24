@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:world_traveller_project/components/masonry_grid.dart';
 import 'package:world_traveller_project/components/media_tile.dart';
 import 'package:world_traveller_project/models/location.dart';
 import 'package:world_traveller_project/models/media.dart';
@@ -15,10 +16,6 @@ class MediaCollectionView extends StatefulWidget {
   State<MediaCollectionView> createState() => _MediaCollectionViewState();
 }
 
-/// Which part of a place's name the person tapped, so each can be
-/// filtered independently instead of only ever filtering by city.
-enum _GeoFilterType { city, region, country }
-
 class _MediaCollectionViewState extends State<MediaCollectionView> {
   String _searchQuery = '';
   double? _minRatingFilter;
@@ -30,73 +27,15 @@ class _MediaCollectionViewState extends State<MediaCollectionView> {
   String? _moodFilter;
   static const _otherMoodFilter = 'Other...';
 
-  // Fase 3, punto 17 (migliorato): città, regione e nazione sono ora tre
-  // filtri indipendenti — prima cliccare il nome applicava solo un
-  // filtro testuale sulla città. _geoFilterType/_geoFilterValue tengono
-  // traccia di QUALE dei tre è attivo (uno alla volta, per restare
-  // semplice da capire), separato dalla barra di ricerca libera.
-  _GeoFilterType? _geoFilterType;
-  String? _geoFilterValue;
-
   final TextEditingController _searchController = TextEditingController();
 
   bool get _hasActiveFilters =>
-      _minRatingFilter != null ||
-      _tagFilter != null ||
-      _moodFilter != null ||
-      _geoFilterType != null;
+      _minRatingFilter != null || _tagFilter != null || _moodFilter != null;
 
   void _setSearch(String value) {
     setState(() => _searchQuery = value);
     _searchController.text = value;
     _searchController.selection = TextSelection.collapsed(offset: value.length);
-  }
-
-  void _toggleGeoFilter(_GeoFilterType type, String? value) {
-    if (value == null || value.trim().isEmpty) return;
-    setState(() {
-      if (_geoFilterType == type && _geoFilterValue == value) {
-        // Tapping the same chip again clears it.
-        _geoFilterType = null;
-        _geoFilterValue = null;
-      } else {
-        _geoFilterType = type;
-        _geoFilterValue = value;
-      }
-    });
-  }
-
-  void _clearGeoFilter() {
-    setState(() {
-      _geoFilterType = null;
-      _geoFilterValue = null;
-    });
-  }
-
-  bool _matchesGeoFilter(Location loc) {
-    switch (_geoFilterType) {
-      case null:
-        return true;
-      case _GeoFilterType.city:
-        return loc.city == _geoFilterValue;
-      case _GeoFilterType.region:
-        return (loc.region ?? '') == _geoFilterValue;
-      case _GeoFilterType.country:
-        return loc.country == _geoFilterValue;
-    }
-  }
-
-  String get _geoFilterLabel {
-    switch (_geoFilterType) {
-      case null:
-        return '';
-      case _GeoFilterType.city:
-        return 'City';
-      case _GeoFilterType.region:
-        return 'Region';
-      case _GeoFilterType.country:
-        return 'Country';
-    }
   }
 
   @override
@@ -131,17 +70,15 @@ class _MediaCollectionViewState extends State<MediaCollectionView> {
     }
     final sortedTags = allTags.toList()..sort();
 
-    final Map<Location, List<Media>> groupedMedia = {};
+    // One flat list of every picture that passes the filters, newest
+    // first. The search box still finds pictures by city, region,
+    // country or title, so places don't need a header of their own.
+    final List<({Media media, Location loc})> results = [];
 
-    for (var loc in locations) {
-      if (!_matchesGeoFilter(loc)) continue;
-
-      // Improvement: also matches region and the local-language names
-      // added in Phase 1 (before, only the English city/country were
-      // ever checked here).
+    for (final loc in locations) {
       final matchesQuery = _searchQuery.isEmpty || loc.matchesQuery(_searchQuery);
 
-      final matchedList = loc.mediaSet.where((m) {
+      for (final m in loc.mediaSet) {
         final matchesSearch = matchesQuery ||
             m.fileName.toLowerCase().contains(_searchQuery.toLowerCase()) ||
             (m.title ?? '').toLowerCase().contains(_searchQuery.toLowerCase());
@@ -151,13 +88,14 @@ class _MediaCollectionViewState extends State<MediaCollectionView> {
             (_moodFilter == _otherMoodFilter
                 ? (m.emotionLabel != null && !m.isStandardMood)
                 : m.mood == _moodFilter);
-        return matchesSearch && matchesRating && matchesTag && matchesMood;
-      }).toList();
-
-      if (matchedList.isNotEmpty) {
-        groupedMedia[loc] = matchedList;
+        if (matchesSearch && matchesRating && matchesTag && matchesMood) {
+          results.add((media: m, loc: loc));
+        }
       }
     }
+
+    results.sort((a, b) => (b.media.travelDate ?? b.media.lastModification)
+        .compareTo(a.media.travelDate ?? a.media.lastModification));
 
     return Scaffold(
       appBar: AppBar(
@@ -184,21 +122,6 @@ class _MediaCollectionViewState extends State<MediaCollectionView> {
               },
             ),
           ),
-          // The one geographic filter that's active right now, shown as
-          // a removable chip so it stays visible even once the person
-          // has scrolled past the location header they tapped.
-          if (_geoFilterType != null)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: InputChip(
-                  avatar: const Icon(Icons.place, size: 16, color: Colors.redAccent),
-                  label: Text('$_geoFilterLabel: $_geoFilterValue'),
-                  onDeleted: _clearGeoFilter,
-                ),
-              ),
-            ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16.0),
             child: Align(
@@ -285,8 +208,6 @@ class _MediaCollectionViewState extends State<MediaCollectionView> {
                           _minRatingFilter = null;
                           _tagFilter = null;
                           _moodFilter = null;
-                          _geoFilterType = null;
-                          _geoFilterValue = null;
                         }),
                         icon: const Icon(Icons.filter_alt_off_outlined, size: 16),
                         label: const Text('Clear filters'),
@@ -298,7 +219,7 @@ class _MediaCollectionViewState extends State<MediaCollectionView> {
           ),
           const SizedBox(height: 8),
           Expanded(
-            child: groupedMedia.isEmpty
+            child: results.isEmpty
                 ? Center(
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
@@ -323,168 +244,53 @@ class _MediaCollectionViewState extends State<MediaCollectionView> {
                       ],
                     ),
                   )
-                : ListView(
-                    padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-                    children: groupedMedia.entries.map((entry) {
-                      final loc = entry.key;
-                      final mediaItems = entry.value;
-
-                      return Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 8.0),
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(vertical: 4.0),
-                              child: Row(
-                                children: [
-                                  const Icon(Icons.place, color: Colors.redAccent, size: 20),
-                                  const SizedBox(width: 6),
-                                  // Fase 3, punto 17 (migliorato): città,
-                                  // regione e nazione sono tre elementi
-                                  // cliccabili indipendenti invece di un
-                                  // unico testo — la regione compare solo
-                                  // quando la località ne ha una.
-                                  Flexible(
-                                    child: Wrap(
-                                      spacing: 4,
-                                      runSpacing: 2,
-                                      crossAxisAlignment: WrapCrossAlignment.center,
-                                      children: [
-                                        _GeoFilterChip(
-                                          label: loc.cityLabel,
-                                          selected: _geoFilterType == _GeoFilterType.city &&
-                                              _geoFilterValue == loc.city,
-                                          onTap: () =>
-                                              _toggleGeoFilter(_GeoFilterType.city, loc.city),
-                                        ),
-                                        if (loc.region != null && loc.region!.trim().isNotEmpty) ...[
-                                          Text('·', style: TextStyle(color: Colors.grey.shade400)),
-                                          _GeoFilterChip(
-                                            label: loc.regionLabel ?? loc.region!,
-                                            selected: _geoFilterType == _GeoFilterType.region &&
-                                                _geoFilterValue == loc.region,
-                                            onTap: () => _toggleGeoFilter(
-                                                _GeoFilterType.region, loc.region),
-                                          ),
-                                        ],
-                                        Text('·', style: TextStyle(color: Colors.grey.shade400)),
-                                        _GeoFilterChip(
-                                          label: loc.countryLabel,
-                                          selected: _geoFilterType == _GeoFilterType.country &&
-                                              _geoFilterValue == loc.country,
-                                          onTap: () => _toggleGeoFilter(
-                                              _GeoFilterType.country, loc.country),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  const Spacer(),
-                                  Text(
-                                    '${mediaItems.length} memories',
-                                    style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
-                                  ),
-                                ],
-                              ),
-                            ),
+                : SingleChildScrollView(
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 10),
+                          child: Text(
+                            '${results.length} ${results.length == 1 ? 'memory' : 'memories'}',
+                            style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
                           ),
-                          GridView.builder(
-                            shrinkWrap: true,
-                            physics: const NeverScrollableScrollPhysics(),
-                            gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                              // Fase 3, punto 13/14: margini e dimensione
-                              // minima ridotti per mostrare più foto a
-                              // schermo senza scorrere troppo.
-                              maxCrossAxisExtent: 220,
-                              crossAxisSpacing: 10,
-                              mainAxisSpacing: 10,
-                              childAspectRatio: 0.8,
-                            ),
-                            itemCount: mediaItems.length,
-                            itemBuilder: (context, index) {
-                              final item = mediaItems[index];
-                              return MediaTile(
-                                media: item,
-                                isSelected: false,
-                                isSelecting: false,
-                                onSelectionChanged: () {},
-                                onAuthorTap: (userId) {
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (_) =>
-                                          UserProfileView(userId: userId),
-                                    ),
-                                  );
-                                },
-                                onTap: () {
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (_) => PreviewView(media: item, location: loc),
-                                    ),
-                                  );
-                                },
-                              );
-                            },
-                          ),
-                          const SizedBox(height: 12),
-                        ],
-                      );
-                    }).toList(),
+                        ),
+                        MasonryGrid(
+                          itemCount: results.length,
+                          itemBuilder: (context, index) {
+                            final item = results[index];
+                            return MediaTile(
+                              natural: true,
+                              media: item.media,
+                              isSelected: false,
+                              isSelecting: false,
+                              onSelectionChanged: () {},
+                              onAuthorTap: (userId) {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => UserProfileView(userId: userId),
+                                  ),
+                                );
+                              },
+                              onTap: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) =>
+                                        PreviewView(media: item.media, location: item.loc),
+                                  ),
+                                );
+                              },
+                            );
+                          },
+                        ),
+                      ],
+                    ),
                   ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-/// One tappable "City" / "Region" / "Country" pill shown above a group
-/// of photos — filled + bold when it is the active geographic filter,
-/// a dotted underline otherwise (same visual hint the old single-label
-/// header used, kept for continuity).
-class _GeoFilterChip extends StatelessWidget {
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-
-  const _GeoFilterChip({
-    required this.label,
-    required this.selected,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Tooltip(
-      message: selected ? 'Clear this filter' : 'Show only $label',
-      child: InkWell(
-        borderRadius: BorderRadius.circular(6),
-        onTap: onTap,
-        child: Container(
-          padding: selected
-              ? const EdgeInsets.symmetric(horizontal: 8, vertical: 2)
-              : EdgeInsets.zero,
-          decoration: selected
-              ? BoxDecoration(
-                  color: theme.colorScheme.primaryContainer,
-                  borderRadius: BorderRadius.circular(6),
-                )
-              : null,
-          child: Text(
-            label,
-            style: TextStyle(
-              fontSize: 17,
-              fontWeight: FontWeight.bold,
-              color: selected ? theme.colorScheme.onPrimaryContainer : null,
-              decoration: selected ? null : TextDecoration.underline,
-              decorationStyle: TextDecorationStyle.dotted,
-            ),
-          ),
-        ),
       ),
     );
   }
