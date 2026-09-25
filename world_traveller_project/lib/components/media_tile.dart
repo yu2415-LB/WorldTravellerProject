@@ -4,7 +4,8 @@ import 'package:world_traveller_project/models/media.dart';
 import 'package:world_traveller_project/providers/social_controller.dart';
 
 /// A single responsive picture thumbnail.
-/// Shows images coming from a Supabase URL or from bytes held in memory.
+/// Shows images coming from a Supabase URL, from bytes held in memory,
+/// or from a file kept only on this machine ([Media.isLocalOnly]).
 class MediaTile extends StatefulWidget {
   final Media media;
   final bool isSelected;
@@ -53,7 +54,8 @@ class _MediaTileState extends State<MediaTile> {
 
     if (result == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Sign in to save pictures to your favourites.')),
+        const SnackBar(
+            content: Text('Sign in to save pictures to your favourites.')),
       );
     }
   }
@@ -102,11 +104,14 @@ class _MediaTileState extends State<MediaTile> {
             child: CircularProgressIndicator(
               strokeWidth: 2,
               value: progress.expectedTotalBytes != null
-                  ? progress.cumulativeBytesLoaded / progress.expectedTotalBytes!
+                  ? progress.cumulativeBytesLoaded /
+                      progress.expectedTotalBytes!
                   : null,
             ),
           );
-          return widget.natural ? AspectRatio(aspectRatio: 1, child: spinner) : spinner;
+          return widget.natural
+              ? AspectRatio(aspectRatio: 1, child: spinner)
+              : spinner;
         },
         errorBuilder: (context, error, stackTrace) => _buildFallbackIcon(),
       );
@@ -125,38 +130,63 @@ class _MediaTileState extends State<MediaTile> {
         // Hover overlay
         Positioned.fill(
           child: AnimatedOpacity(
-          duration: const Duration(milliseconds: 150),
-          opacity: _isHovered ? 1.0 : 0.0,
-          child: IgnorePointer(
+            duration: const Duration(milliseconds: 150),
+            opacity: _isHovered ? 1.0 : 0.0,
+            child: IgnorePointer(
+              child: Container(
+                color: Colors.black.withValues(alpha: 0.45),
+                alignment: Alignment.center,
+                child: const Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.open_in_full, color: Colors.white, size: 28),
+                    SizedBox(height: 6),
+                    Text(
+                      'Open',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+
+        // "On this computer" badge — shown only for local-only pictures
+        // so the owner is never surprised that they are not on the cloud.
+        if (media.isLocalOnly)
+          Positioned(
+            top: 4,
+            right: 4,
             child: Container(
-              color: Colors.black.withValues(alpha: 0.45),
-              alignment: Alignment.center,
-              child: const Column(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.65),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(Icons.open_in_full, color: Colors.white, size: 28),
-                  SizedBox(height: 6),
+                  Icon(Icons.computer, size: 12, color: Colors.white),
+                  SizedBox(width: 4),
                   Text(
-                    'Open',
+                    'Solo sul tuo PC',
                     style: TextStyle(
                       color: Colors.white,
+                      fontSize: 10,
                       fontWeight: FontWeight.w600,
-                      fontSize: 13,
                     ),
                   ),
                 ],
               ),
             ),
           ),
-        ),
-        ),
 
-        // Favourite (like) button, top-left corner.
-        // Fase 3, punto 16: l'icona si riempie subito al tap (già gestito
-        // in modo ottimistico da SocialController.toggleFavourite, che
-        // aggiorna lo stato locale prima ancora che la chiamata di rete
-        // finisca) — qui aggiungiamo anche un piccolo "pop" per rendere
-        // il cambiamento più evidente.
+        // Favourite button
         if (widget.showFavouriteButton && !widget.isSelecting)
           Positioned(
             top: 4,
@@ -165,17 +195,21 @@ class _MediaTileState extends State<MediaTile> {
               color: Colors.black.withValues(alpha: 0.42),
               shape: const CircleBorder(),
               child: IconButton(
-                tooltip: isFavourite ? 'Remove from favourites' : 'Add to favourites',
+                tooltip: isFavourite
+                    ? 'Remove from favourites'
+                    : 'Add to favourites',
                 iconSize: 18,
                 visualDensity: VisualDensity.compact,
-                constraints: const BoxConstraints(minWidth: 34, minHeight: 34),
+                constraints:
+                    const BoxConstraints(minWidth: 34, minHeight: 34),
                 padding: EdgeInsets.zero,
                 icon: TweenAnimationBuilder<double>(
                   key: ValueKey(isFavourite),
                   tween: Tween(begin: 0.6, end: 1.0),
                   duration: const Duration(milliseconds: 220),
                   curve: Curves.elasticOut,
-                  builder: (context, scale, child) => Transform.scale(scale: scale, child: child),
+                  builder: (context, scale, child) =>
+                      Transform.scale(scale: scale, child: child),
                   child: Icon(
                     isFavourite ? Icons.favorite : Icons.favorite_border,
                     color: isFavourite ? Colors.redAccent : Colors.white,
@@ -194,7 +228,8 @@ class _MediaTileState extends State<MediaTile> {
             child: Checkbox(
               value: widget.isSelected,
               onChanged: (_) => widget.onSelectionChanged(),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(4)),
               fillColor: WidgetStateProperty.resolveWith<Color>(
                 (states) => states.contains(WidgetState.selected)
                     ? Theme.of(context).colorScheme.primary
@@ -205,13 +240,7 @@ class _MediaTileState extends State<MediaTile> {
             ),
           ),
 
-        // Star rating badge
-        // Fase 3, punto 15: rimosso dalla vista a griglia per non coprire
-        // l'immagine — resta solo il pulsante Preferiti in alto a
-        // sinistra. Il voto è comunque visibile aprendo la foto.
-
-        // Caption card: soft dark gradient along the bottom with the
-        // picture's title (never the file name) and the star rating.
+        // Caption card
         Positioned(
           left: 0,
           right: 0,
@@ -249,11 +278,14 @@ class _MediaTileState extends State<MediaTile> {
                     Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Icon(Icons.star_rounded, size: 14, color: Colors.amber),
+                        const Icon(Icons.star_rounded,
+                            size: 14, color: Colors.amber),
                         const SizedBox(width: 2),
                         Text(
-                          media.grading.toStringAsFixed(media.grading % 1 == 0 ? 0 : 1),
-                          style: const TextStyle(color: Colors.white70, fontSize: 12),
+                          media.grading
+                              .toStringAsFixed(media.grading % 1 == 0 ? 0 : 1),
+                          style: const TextStyle(
+                              color: Colors.white70, fontSize: 12),
                         ),
                       ],
                     ),
@@ -263,11 +295,6 @@ class _MediaTileState extends State<MediaTile> {
             ),
           ),
         ),
-
-        // Author name along the bottom.
-        // Fase 3, punto 15: rimosso dalla vista a griglia per lo stesso
-        // motivo; il nome dell'autore resta visibile nella preview a
-        // schermo intero e nelle pagine profilo.
       ],
     );
   }

@@ -113,11 +113,28 @@ class SocialController extends ChangeNotifier {
     if (userId == null) return false;
     if (userId == recipientId) return false;
 
+    // Refuse to spam the same person with a duplicate request: if any
+    // relationship already exists (pending, or already accepted), do
+    // nothing. The UI checks this before opening the dialog too, but
+    // keeping the guard here means a racing double-tap can't slip past.
+    final existing = await _mailboxService.findContactWith(userId, recipientId);
+    if (existing != null) return false;
+
     await _mailboxService.sendContactRequest(
       senderId: userId,
       recipientId: recipientId,
     );
     return true;
+  }
+
+  /// Public wrapper around [MailboxService.findContactWith] so the UI
+  /// does not have to talk to the service directly.
+  Future<({String status, String? email})?> contactStatusWith(
+    String otherUserId,
+  ) async {
+    final myId = _currentUserId;
+    if (myId == null) return null;
+    return _mailboxService.findContactWith(myId, otherUserId);
   }
 
   /// Sends a terms-of-use warning to [recipientId]. Only meant to be

@@ -83,7 +83,10 @@ class ProfileService {
         'id': userId,
         'first_name': firstName.trim(),
         'last_name': lastName.trim(),
-        if (email != null) 'email': email,
+        // Null-aware element: Dart skips the whole entry when `email`
+        // is null, instead of sending an explicit null that would wipe
+        // an existing column on upsert.
+        'email': ?email,
       },
       onConflict: 'id',
       ignoreDuplicates: true,

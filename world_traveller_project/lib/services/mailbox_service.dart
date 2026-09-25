@@ -33,6 +33,71 @@ class MailboxService {
     });
   }
 
+  /// Looks up the existing contact relationship between [myId] and
+  /// [otherId] in BOTH directions, so the UI can refuse to send a
+  /// duplicate request and can show the shared email straight away when
+  /// the contact has already been accepted.
+  ///
+  /// Returns:
+  ///  * `'accepted'` when a `contact_accepted` message exists either way.
+  ///    [email] carries the address the accepter chose to share (or null
+  ///    when they accepted without sharing one).
+  ///  * `'sent'` when I have a pending `contact_request` to them.
+  ///  * `'received'` when they have a pending `contact_request` to me.
+  ///  * `null` when we have never contacted each other.
+  Future<({String status, String? email})?> findContactWith(
+    String myId,
+    String otherId,
+  ) async {
+    if (myId.isEmpty || otherId.isEmpty || myId == otherId) return null;
+
+    try {
+      final rows = await _client
+          .from(_table)
+          .select()
+          .or('and(sender_id.eq.$myId,recipient_id.eq.$otherId),'
+              'and(sender_id.eq.$otherId,recipient_id.eq.$myId)')
+          .order('created_at', ascending: false);
+
+      final list = (rows as List)
+          .map((r) => Map<String, dynamic>.from(r as Map))
+          .toList();
+
+      // Priority 1: an accepted contact (in either direction). The email
+      // travels inside `body` — only the two parties can read this row.
+      for (final row in list) {
+        if (row['type'] == 'contact_accepted') {
+          final email = (row['body'] as String?)?.trim();
+          return (
+            status: 'accepted',
+            email: (email != null && email.isNotEmpty) ? email : null,
+          );
+        }
+      }
+
+      // Priority 2: a pending request I sent them.
+      for (final row in list) {
+        if (row['type'] == 'contact_request' &&
+            row['sender_id']?.toString() == myId) {
+          return (status: 'sent', email: null);
+        }
+      }
+
+      // Priority 3: a pending request they sent me (waiting on my reply).
+      for (final row in list) {
+        if (row['type'] == 'contact_request' &&
+            row['sender_id']?.toString() == otherId) {
+          return (status: 'received', email: null);
+        }
+      }
+
+      return null;
+    } catch (e) {
+      debugPrint('Could not check contact status: $e');
+      return null;
+    }
+  }
+
   /// The recipient of a contact request said "yes": tell the person who
   /// asked (they get a `contact_accepted` entry in their own mailbox) and
   /// remove the original request so it can't be answered twice.
@@ -48,7 +113,8 @@ class MailboxService {
       'sender_id': accepterId,
       'recipient_id': requesterId,
       'type': 'contact_accepted',
-      if (accepterEmail != null && accepterEmail.isNotEmpty) 'body': accepterEmail,
+      if (accepterEmail != null && accepterEmail.isNotEmpty)
+        'body': accepterEmail,
     });
     await _client.from(_table).delete().eq('id', requestId);
   }

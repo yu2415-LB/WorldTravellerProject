@@ -350,7 +350,7 @@ class _EditMediaViewState extends State<EditMediaView> {
         ),
         const SizedBox(height: 12),
         DropdownButtonFormField<String>(
-          value: _selectedMood,
+          initialValue: _selectedMood,
           isExpanded: true,
           decoration: const InputDecoration(
             border: OutlineInputBorder(),

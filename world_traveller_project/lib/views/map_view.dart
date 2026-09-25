@@ -51,7 +51,7 @@ class _MapViewState extends State<MapView> {
 
   /// Whether the main navigation sidebar (not the photo gallery panel
   /// above) is showing its text labels or collapsed down to icons.
-  bool _navExpanded = true;
+  bool _navExpanded = false;
 
   /// Lets nav destinations close the Drawer on mobile before navigating,
   /// without accidentally popping the map screen itself off the stack.
@@ -72,13 +72,19 @@ class _MapViewState extends State<MapView> {
   bool _searchingPlaces = false;
   int _placeRequestId = 0;
 
-  // Double-click on the map selects (and paints orange) a whole country.
+  // A single click drops a city pin (see _handleMapTap). Double-click on
+  // the map selects (and paints green) a whole region/state; press-and-
+  // hold selects (and paints blue) a whole country instead.
   CountryShape? _selectedCountry;
   bool _loadingCountry = false;
   int _countryRequestId = 0;
+  CountryShape? _selectedRegion;
+  bool _loadingRegion = false;
+  int _regionRequestId = 0;
   DateTime? _lastClickTime;
   Offset? _lastClickPos;
   bool _ignoreNextTap = false;
+  Timer? _longPressTimer;
 
   // Filtri & ricerca
   String _searchQuery = '';
@@ -119,6 +125,7 @@ class _MapViewState extends State<MapView> {
   @override
   void dispose() {
     _placeDebounce?.cancel();
+    _longPressTimer?.cancel();
     _sidebarScrollController.dispose();
     super.dispose();
   }
@@ -234,9 +241,12 @@ class _MapViewState extends State<MapView> {
       return;
     }
 
-    // A single click elsewhere dismisses a selected country.
-    if (_selectedCountry != null) {
-      setState(() => _selectedCountry = null);
+    // A single click elsewhere dismisses a selected country/region.
+    if (_selectedCountry != null || _selectedRegion != null) {
+      setState(() {
+        _selectedCountry = null;
+        _selectedRegion = null;
+      });
     }
 
     // A plain tap (not a drag) on the empty map drops a temporary marker.
@@ -245,9 +255,13 @@ class _MapViewState extends State<MapView> {
     setState(() => _pendingLocation = point);
   }
 
-  /// Raw pointer listener: unlike the map's own onTap it is not affected by
-  /// flutter_map's double-tap gesture handling, so double-clicks are always
-  /// seen. Two left-clicks within 400 ms and 24 px = select a country.
+  /// Raw pointer listener: unlike the map's own onTap/onLongPress it is not
+  /// affected by flutter_map's own gesture handling, so double-clicks and
+  /// long-presses are always seen exactly as the mouse/finger produced
+  /// them. This single entry point drives all three granularities:
+  ///  * one click                       -> city pin (handled by onTap)
+  ///  * two clicks within 400 ms/24 px  -> select a region (green)
+  ///  * press and hold (~550 ms)        -> select a country (blue)
   void _handlePointerDown(PointerDownEvent event) {
     if (event.buttons != kPrimaryButton) return;
 
@@ -263,11 +277,13 @@ class _MapViewState extends State<MapView> {
     if (!isDouble) {
       _lastClickTime = now;
       _lastClickPos = event.localPosition;
+      _startLongPressTimer(event.localPosition);
       return;
     }
 
     _lastClickTime = null;
     _lastClickPos = null;
+    _longPressTimer?.cancel();
 
     // While moving a pin, clicks belong to that action.
     if (_locationBeingMoved != null) return;
@@ -277,14 +293,69 @@ class _MapViewState extends State<MapView> {
     Future.delayed(const Duration(milliseconds: 600), () => _ignoreNextTap = false);
 
     final point = _mapController.camera.screenOffsetToLatLng(event.localPosition);
-    _selectCountryAt(point);
+    _selectRegionAt(point);
   }
+
+  /// Cancels the long-press timer on release or if the pointer moves too
+  /// much (panning the map should never trigger a country selection).
+  void _handlePointerUp(PointerUpEvent event) => _longPressTimer?.cancel();
+
+  void _handlePointerCancel(PointerCancelEvent event) => _longPressTimer?.cancel();
+
+  void _handlePointerMove(PointerMoveEvent event) {
+    final start = _lastClickPos;
+    if (_longPressTimer != null &&
+        start != null &&
+        (event.localPosition - start).distance > 12) {
+      _longPressTimer?.cancel();
+    }
+  }
+
+  /// Press-and-hold anywhere on the map selects the whole country under
+  /// the finger/cursor — unless the press lands on the pending city pin,
+  /// which keeps its own press-and-hold to confirm adding a memory there.
+  void _startLongPressTimer(Offset localPosition) {
+    _longPressTimer?.cancel();
+
+    if (_locationBeingMoved != null || _isNearPendingMarker(localPosition)) {
+      return;
+    }
+
+    _longPressTimer = Timer(const Duration(milliseconds: 550), () {
+      if (!mounted) return;
+
+      // Swallow the onTap this same press will still deliver on release.
+      _ignoreNextTap = true;
+      Future.delayed(const Duration(milliseconds: 400), () => _ignoreNextTap = false);
+
+      final point = _mapController.camera.screenOffsetToLatLng(localPosition);
+      _selectCountryAt(point);
+    });
+  }
+
+  /// Whether [local] (in the map widget's own coordinates) is close enough
+  /// to the pending city pin that a press there should confirm the memory
+  /// instead of selecting the country underneath it.
+  /// Whether [local] (in the map widget's own coordinates) is close enough
+  /// to the pending city pin that a press there should confirm the memory
+  /// instead of selecting the country underneath it.
+  bool _isNearPendingMarker(Offset local) {
+    final pending = _pendingLocation;
+    if (pending == null) return false;
+    try {
+      final screen = _mapController.camera.latLngToScreenOffset(pending);
+      return (local - screen).distance < 36;} catch (_) {
+      return false;
+    }
+  }
+
 
   Future<void> _selectCountryAt(LatLng point) async {
     final requestId = ++_countryRequestId;
 
     setState(() {
-      _pendingLocation = null; // the first click of the double-click
+      _pendingLocation = null;
+      _selectedRegion = null; // country and region selection are exclusive
       _loadingCountry = true;
     });
 
@@ -329,6 +400,60 @@ class _MapViewState extends State<MapView> {
     );
 
     if (mounted) setState(() => _selectedCountry = null);
+  }
+
+  Future<void> _selectRegionAt(LatLng point) async {
+    final requestId = ++_regionRequestId;
+
+    setState(() {
+      _pendingLocation = null; // the first click of the double-click
+      _selectedCountry = null; // country and region selection are exclusive
+      _loadingRegion = true;
+    });
+
+    try {
+      final shape = await GeocodingService.instance.regionAt(
+        point.latitude,
+        point.longitude,
+      );
+      if (!mounted || requestId != _regionRequestId) return;
+
+      setState(() {
+        _selectedRegion = shape;
+        _loadingRegion = false;
+      });
+
+      if (shape == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('No region found here — try holding for the whole country.'),
+          ),
+        );
+      }
+    } catch (_) {
+      if (!mounted || requestId != _regionRequestId) return;
+      setState(() => _loadingRegion = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not load the region. Try again.')),
+      );
+    }
+  }
+
+  Future<void> _addMemoryToRegion() async {
+    final shape = _selectedRegion;
+    if (shape == null) return;
+
+    if (!await ensureLoggedIn(context)) return;
+    if (!mounted) return;
+
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => AddMediaView(initialPlace: shape.place),
+      ),
+    );
+
+    if (mounted) setState(() => _selectedRegion = null);
   }
 
   void _cancelPendingLocation() {
@@ -672,8 +797,7 @@ class _MapViewState extends State<MapView> {
               shrinkWrap: true,
               padding: EdgeInsets.zero,
               itemCount: _placeResults.length,
-              separatorBuilder: (_, __) => const Divider(height: 1),
-              itemBuilder: (context, index) {
+                separatorBuilder: (_, _) => const Divider(height: 1),              itemBuilder: (context, index) {
                 final place = _placeResults[index];
                 return ListTile(
                   dense: true,
@@ -1097,7 +1221,7 @@ class _MapViewState extends State<MapView> {
                                 ? Image.network(
                                     url,
                                     fit: BoxFit.cover,
-                                    errorBuilder: (_, __, ___) => Container(
+                                    errorBuilder: (_, _, _) => Container(
                                       color: Theme.of(context).colorScheme.surfaceContainerHighest,
                                       child: const Icon(Icons.image_outlined),
                                     ),
@@ -1508,12 +1632,17 @@ class _MapViewState extends State<MapView> {
                       Listener(
                         behavior: HitTestBehavior.translucent,
                         onPointerDown: _handlePointerDown,
+                        onPointerUp: _handlePointerUp,
+                        onPointerMove: _handlePointerMove,
+                        onPointerCancel: _handlePointerCancel,
                         child: FlutterMap(
                         mapController: _mapController,
                         options: MapOptions(
                           initialCenter: const LatLng(41.9028, 12.4964),
                           initialZoom: 5,
-                          // Double-click selects a country instead of zooming.
+                          // Double-click selects a region and press-and-hold
+                          // selects a country (see _handlePointerDown),
+                          // instead of the default double-tap-to-zoom.
                           interactionOptions: InteractionOptions(
                             flags: InteractiveFlag.all & ~InteractiveFlag.doubleTapZoom,
                           ),
@@ -1525,6 +1654,19 @@ class _MapViewState extends State<MapView> {
                             urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                             userAgentPackageName: 'com.worldtraveller.app',
                           ),
+                          if (_selectedRegion != null)
+                            PolygonLayer(
+                              polygons: [
+                                for (final poly in _selectedRegion!.polygons)
+                                  Polygon(
+                                    points: poly.outer,
+                                    holePointsList: poly.holes,
+                                    color: Colors.green.withValues(alpha: 0.35),
+                                    borderColor: Colors.green.shade800,
+                                    borderStrokeWidth: 2,
+                                  ),
+                              ],
+                            ),
                           if (_selectedCountry != null)
                             PolygonLayer(
                               polygons: [
@@ -1649,6 +1791,35 @@ class _MapViewState extends State<MapView> {
                           ),
                         ),
 
+                      if (_loadingRegion)
+                        Positioned(
+                          top: 16,
+                          left: 0,
+                          right: 0,
+                          child: Center(
+                            child: Material(
+                              elevation: 4,
+                              borderRadius: BorderRadius.circular(20),
+                              color: Theme.of(context).colorScheme.primaryContainer,
+                              child: const Padding(
+                                padding: EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    SizedBox(
+                                      width: 16,
+                                      height: 16,
+                                      child: CircularProgressIndicator(strokeWidth: 2),
+                                    ),
+                                    SizedBox(width: 10),
+                                    Text('Selecting region...', style: TextStyle(fontSize: 13)),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+
                       if (_loadingCountry)
                         Positioned(
                           top: 16,
@@ -1671,6 +1842,51 @@ class _MapViewState extends State<MapView> {
                                     ),
                                     SizedBox(width: 10),
                                     Text('Selecting country...', style: TextStyle(fontSize: 13)),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+
+                      if (_selectedRegion != null)
+                        Positioned(
+                          top: 16,
+                          left: 16,
+                          right: 16,
+                          child: Center(
+                            child: Material(
+                              elevation: 4,
+                              borderRadius: BorderRadius.circular(20),
+                              color: Theme.of(context).colorScheme.surface,
+                              child: Padding(
+                                padding: const EdgeInsets.fromLTRB(16, 8, 8, 8),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(Icons.map_outlined, color: Colors.green.shade700, size: 20),
+                                    const SizedBox(width: 8),
+                                    Flexible(
+                                      child: Text(
+                                        _selectedRegion!.place.title,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 14,
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    FilledButton.icon(
+                                      onPressed: _addMemoryToRegion,
+                                      icon: const Icon(Icons.add_a_photo_outlined, size: 18),
+                                      label: const Text('Add memory to this region'),
+                                    ),
+                                    IconButton(
+                                      tooltip: 'Deselect',
+                                      icon: const Icon(Icons.close, size: 18),
+                                      onPressed: () => setState(() => _selectedRegion = null),
+                                    ),
                                   ],
                                 ),
                               ),

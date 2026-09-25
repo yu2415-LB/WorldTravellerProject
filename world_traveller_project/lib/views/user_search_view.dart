@@ -185,7 +185,7 @@ class _UserSearchViewState extends State<UserSearchView> {
     return ListView.separated(
       padding: const EdgeInsets.symmetric(horizontal: 16),
       itemCount: _results.length,
-      separatorBuilder: (_, __) => const Divider(height: 1),
+      separatorBuilder: (_, _) => const Divider(height: 1),
       itemBuilder: (context, index) {
         final profile = _results[index];
         final hasNameClash = (nameCounts[profile.fullName] ?? 0) > 1;

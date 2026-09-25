@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:world_traveller_project/enums/media_visibility.dart';
 import 'package:world_traveller_project/models/location.dart';
 import 'package:world_traveller_project/models/media.dart';
+import 'package:world_traveller_project/services/local_media_service.dart';
 import 'package:world_traveller_project/services/supabase_storage_service.dart';
 
 /// Thrown by [LocationManagingController.removeItem] when the caller is
@@ -23,17 +24,9 @@ class LocationManagingController extends ChangeNotifier {
   List<Location> _locations = [];
   bool _isLoading = false;
 
-  /// "My Work" vs "General World" — the big toggle at the bottom of the
-  /// app. Starts on the public feed, which is what a new visitor expects
-  /// to see first.
   WorldScope _worldScope = WorldScope.generalWorld;
-
-  /// Inside the public world, an optional extra filter between a
-  /// traveller's personal trips and their work/portfolio content. Null
-  /// means "show both".
   MediaCategory? _categoryFilter;
 
-  // getters
   Location? get location => _location;
   List<Location> get locations => _locations;
   bool get isLoading => _isLoading;
@@ -41,16 +34,10 @@ class LocationManagingController extends ChangeNotifier {
   WorldScope get worldScope => _worldScope;
   MediaCategory? get categoryFilter => _categoryFilter;
 
-  /// Switches between "My Work" and "General World". This is the whole
-  /// logic behind the big bottom toggle: nothing is re-fetched from the
-  /// server, the same in-memory list of locations is simply re-filtered
-  /// through [visibleLocations].
   void setWorldScope(WorldScope scope) {
     if (_worldScope == scope) return;
     _worldScope = scope;
     if (scope == WorldScope.myWork) {
-      // The category split ("Viaggi personali" / "Lavori-Portfolio") only
-      // exists inside the public world.
       _categoryFilter = null;
     }
     notifyListeners();
@@ -62,20 +49,6 @@ class LocationManagingController extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// The actual "Switch" query logic requested in the brief:
-  ///
-  /// * **My Work** — only pictures the signed-in user uploaded, no matter
-  ///   their [MediaVisibility] (an unpublished picture still belongs to
-  ///   its owner's private library). Nobody else's pictures are ever
-  ///   included here.
-  /// * **General World** — every picture anyone has marked
-  ///   [MediaVisibility.public], optionally narrowed down to one
-  ///   [MediaCategory] ("Viaggi personali" vs "Lavori/Portfolio").
-  ///
-  /// Locations (map pins) are shared between users, so a pin can hold a
-  /// mix of pictures that do and don't belong in the current world; this
-  /// returns copies of each [Location] carrying only the matching
-  /// pictures, and drops any pin left with none.
   List<Location> get visibleLocations {
     final currentUserId = Supabase.instance.client.auth.currentUser?.id;
     final result = <Location>[];
@@ -96,15 +69,22 @@ class LocationManagingController extends ChangeNotifier {
 
   bool _mediaMatchesCurrentScope(Media media, {required String? currentUserId}) {
     if (_worldScope == WorldScope.myWork) {
-      return currentUserId != null && media.userId == currentUserId;
+      if (currentUserId == null) return false;
+      if (media.isLocalOnly) {
+        // Local pictures belong to whoever is signed in on this machine.
+        return true;
+      }
+      return media.userId == currentUserId;
     }
 
+    // General World never shows local-only pictures: they are not on the
+    // cloud, so nobody but this machine could ever see them anyway.
+    if (media.isLocalOnly) return false;
     if (!media.visibility.isPublic) return false;
     if (_categoryFilter != null && media.category != _categoryFilter) return false;
     return true;
   }
 
-  // methods
   void createPlace({
     required String city,
     required String country,
@@ -152,7 +132,8 @@ class LocationManagingController extends ChangeNotifier {
       await loadLocationsFromJSON();
     }
     for (var loc in _locations) {
-      if (loc.mediaSet.any((m) => m.id == media.id || m.filePath == media.filePath)) {
+      if (loc.mediaSet
+          .any((m) => m.id == media.id || m.filePath == media.filePath)) {
         return loc;
       }
     }
@@ -189,19 +170,13 @@ class LocationManagingController extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Deletes a picture, enforcing the rule from the brief: only the
-  /// picture's own uploader, or an administrator, may delete it. Anyone
-  /// else gets [MediaPermissionDeniedException] and nothing happens.
-  ///
-  /// This client-side check is a first line of defence for a snappy UI;
-  /// the same rule is also enforced by the database's Row Level Security
-  /// policies (see SUPABASE_SETUP_PHASE1.sql), so it cannot be bypassed
-  /// even if this check were skipped.
   Future<void> removeItem(Media media, {required bool requestedByAdmin}) async {
     final currentUserId = Supabase.instance.client.auth.currentUser?.id;
     final isOwner = currentUserId != null && media.userId == currentUserId;
 
-    if (!isOwner && !requestedByAdmin) {
+    // Local-only pictures do not have a cloud owner; allow whoever is on
+    // this machine to remove them.
+    if (!isOwner && !requestedByAdmin && !media.isLocalOnly) {
       throw const MediaPermissionDeniedException();
     }
 
@@ -217,15 +192,11 @@ class LocationManagingController extends ChangeNotifier {
       try {
         await _storageService.deleteMedia(media, parentLoc);
       } catch (e) {
-        // The database refused (or the network failed): nothing was
-        // deleted, so tell the user instead of silently pretending.
         final reason = e.toString().replaceFirst('Exception: ', '');
-        throw MediaPermissionDeniedException('Could not delete this picture. $reason');
+        throw MediaPermissionDeniedException(
+            'Could not delete this picture. $reason');
       }
       if (parentLoc.mediaSet.isEmpty) {
-        // Already validated above: pass the same permission along so an
-        // admin clearing out someone else's last public picture doesn't
-        // get blocked again here.
         await deleteLocation(parentLoc, requestedByAdmin: requestedByAdmin);
       } else {
         notifyListeners();
@@ -233,10 +204,8 @@ class LocationManagingController extends ChangeNotifier {
     }
   }
 
-  /// Permanently deletes a place and every picture in it. Only the pin's
-  /// own owner may do this; an admin may too (to clear an offending pin
-  /// from the public "General World" feed). Anyone else is refused.
-  Future<void> deleteLocation(Location location, {bool requestedByAdmin = false}) async {
+  Future<void> deleteLocation(Location location,
+      {bool requestedByAdmin = false}) async {
     final currentUserId = Supabase.instance.client.auth.currentUser?.id;
     final isOwner = currentUserId != null &&
         location.userId != null &&
@@ -253,8 +222,6 @@ class LocationManagingController extends ChangeNotifier {
     await _storageService.deleteLocation(location);
   }
 
-  /// Moves a pin without touching the pictures attached to it. Only the
-  /// pin's own owner may move it.
   Future<void> moveLocation(
     Location location,
     double newLatitude,
@@ -292,7 +259,6 @@ class LocationManagingController extends ChangeNotifier {
     await _storageService.saveLocation(moved);
   }
 
-  /// Adds a picture to an existing place and syncs it.
   Future<void> addMediaToLocation(Location location, Media media) async {
     final index = _locations.indexWhere((loc) => loc.id == location.id);
 
@@ -304,17 +270,53 @@ class LocationManagingController extends ChangeNotifier {
     }
 
     notifyListeners();
-    await _storageService.saveLocation(index != -1 ? _locations[index] : location);
+    await _storageService.saveLocation(
+        index != -1 ? _locations[index] : location);
   }
 
-  /// Uploads bytes to Supabase and builds the matching Media object.
+  /// Uploads bytes to the right place depending on [localOnly]:
+  ///  * false → Supabase Storage, as before
+  ///  * true  → this machine's disk, via [LocalMediaService]
   Future<Media> uploadAndCreateMedia({
     required Location location,
     required String fileName,
     required Uint8List rawBytes,
     required MediaType type,
+    bool localOnly = false,
   }) async {
-    final processedBytes = await _storageService.prepareImageBytes(rawBytes, fileName);
+    final processedBytes =
+        await _storageService.prepareImageBytes(rawBytes, fileName);
+
+    if (localOnly) {
+      if (!LocalMediaService.instance.isAvailable) {
+        throw StateError(
+            'Local-only pictures are not available on this platform.');
+      }
+
+      // Build the Media first to get a fresh id, then write to disk
+      // using that id so delete/load can find it again by id alone.
+      final draft = Media(
+        filePath: '',
+        type: type,
+        grading: 0,
+        fileName: fileName,
+        lastModification: DateTime.now(),
+        tags: const [],
+        memoryBytes: processedBytes,
+        userId: Supabase.instance.client.auth.currentUser?.id,
+        isLocalOnly: true,
+      );
+
+      final relativePath = await LocalMediaService.instance.save(
+        mediaId: draft.id,
+        fileName: fileName,
+        bytes: processedBytes,
+      );
+
+      draft.localPath = relativePath;
+      draft.filePath = relativePath; // kept in sync for the cache / older code
+      return draft;
+    }
 
     final uploadResult = await _storageService.uploadMediaFile(
       bytes: processedBytes,
@@ -323,7 +325,7 @@ class LocationManagingController extends ChangeNotifier {
       type: type,
     );
 
-    final media = Media(
+    return Media(
       filePath: uploadResult.storagePath,
       type: type,
       grading: 0,
@@ -332,11 +334,7 @@ class LocationManagingController extends ChangeNotifier {
       tags: const [],
       remoteUrl: uploadResult.publicUrl,
       memoryBytes: processedBytes,
-      // Remember who uploaded it, so "My memories" and the edit/delete
-      // permissions work straight away without a reload.
       userId: Supabase.instance.client.auth.currentUser?.id,
     );
-
-    return media;
   }
 }

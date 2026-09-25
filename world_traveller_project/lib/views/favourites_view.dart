@@ -79,9 +79,13 @@ class _FavouritesViewState extends State<FavouritesView> {
                       icon: const Icon(Icons.login),
                       label: const Text('Sign in'),
                       onPressed: () async {
+                        // Grab the controller BEFORE the async gap: after
+                        // `await` the widget may no longer be mounted, and
+                        // `context.read` would then be flagged (and unsafe).
+                        final social = context.read<SocialController>();
                         await ensureLoggedIn(context);
                         if (!mounted) return;
-                        await context.read<SocialController>().refreshForCurrentUser();
+                        await social.refreshForCurrentUser();
                         if (mounted) setState(() {});
                       },
                     ),

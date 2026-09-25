@@ -288,6 +288,37 @@ class GeocodingService {
     return CountryShape(place, _parseGeoJson(item['geojson']));
   }
 
+  /// The region/state (Tuscany, Crete, Washington...) containing a point,
+  /// with its border polygon — same idea as [countryAt] but one level
+  /// down. Returns null when the country has no such subdivision at this
+  /// point (small countries, city-states...) or over the sea, so the
+  /// caller can fall back to the plain pin.
+  Future<CountryShape?> regionAt(double lat, double lon) async {
+    final data = await _getJson('/reverse', {
+      'format': 'jsonv2',
+      'lat': lat.toString(),
+      'lon': lon.toString(),
+      // Nominatim's zoom-to-admin-level mapping: 5 lands on
+      // state/region/province boundaries (3 would be the country).
+      'zoom': '5',
+      'addressdetails': '1',
+      'namedetails': '1',
+      'polygon_geojson': '1',
+      'polygon_threshold': '0.01',
+      'accept-language': 'en',
+    });
+
+    if (data is! Map || data['error'] != null) return null;
+    final item = data.cast<String, dynamic>();
+
+    final base = _parse(item);
+    // Some points resolve straight to the country (no region tier there,
+    // e.g. Vatican City, Monaco) — nothing to paint green in that case.
+    if (base == null || base.kind != PlaceKind.region) return null;
+
+    return CountryShape(base, _parseGeoJson(item['geojson']));
+  }
+
   static List<LatLng> _ring(dynamic raw) {
     final points = <LatLng>[];
     if (raw is List) {

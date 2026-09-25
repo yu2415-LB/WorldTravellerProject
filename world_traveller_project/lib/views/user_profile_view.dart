@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:world_traveller_project/components/media_results_grid.dart';
 import 'package:world_traveller_project/main.dart';
@@ -112,10 +113,12 @@ class _UserProfileViewState extends State<UserProfileView> {
               CircleAvatar(
                 radius: 30,
                 backgroundColor: theme.colorScheme.primaryContainer,
-                backgroundImage: (profile?.avatarUrl != null && profile!.avatarUrl!.isNotEmpty)
+                backgroundImage: (profile?.avatarUrl != null &&
+                        profile!.avatarUrl!.isNotEmpty)
                     ? NetworkImage(profile.avatarUrl!)
                     : null,
-                child: (profile?.avatarUrl == null || profile!.avatarUrl!.isEmpty)
+                child: (profile?.avatarUrl == null ||
+                        profile!.avatarUrl!.isEmpty)
                     ? Text(
                         profile?.initial ?? '?',
                         style: TextStyle(
@@ -135,7 +138,9 @@ class _UserProfileViewState extends State<UserProfileView> {
                       children: [
                         Flexible(
                           child: Text(
-                            profile != null ? profile.fullName : 'Unknown traveller',
+                            profile != null
+                                ? profile.fullName
+                                : 'Unknown traveller',
                             overflow: TextOverflow.ellipsis,
                             style: theme.textTheme.titleLarge?.copyWith(
                               fontWeight: FontWeight.bold,
@@ -145,7 +150,8 @@ class _UserProfileViewState extends State<UserProfileView> {
                         if (profile?.isBlocked == true) ...[
                           const SizedBox(width: 8),
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 2),
                             decoration: BoxDecoration(
                               color: theme.colorScheme.errorContainer,
                               borderRadius: BorderRadius.circular(20),
@@ -165,7 +171,8 @@ class _UserProfileViewState extends State<UserProfileView> {
                     const SizedBox(height: 2),
                     Text(
                       '$count memor${count == 1 ? 'y' : 'ies'} shared',
-                      style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
+                      style:
+                          TextStyle(color: Colors.grey.shade600, fontSize: 13),
                     ),
                   ],
                 ),
@@ -184,7 +191,8 @@ class _UserProfileViewState extends State<UserProfileView> {
             const SizedBox(height: 12),
             Row(
               children: [
-                Icon(Icons.shield_outlined, size: 16, color: theme.colorScheme.tertiary),
+                Icon(Icons.shield_outlined,
+                    size: 16, color: theme.colorScheme.tertiary),
                 const SizedBox(width: 6),
                 Text(
                   'Admin actions',
@@ -199,7 +207,8 @@ class _UserProfileViewState extends State<UserProfileView> {
                   onPressed: () => _showWarnDialog(context, profile),
                   icon: const Icon(Icons.report_outlined, size: 16),
                   label: const Text('Warn'),
-                  style: OutlinedButton.styleFrom(visualDensity: VisualDensity.compact),
+                  style: OutlinedButton.styleFrom(
+                      visualDensity: VisualDensity.compact),
                 ),
                 const SizedBox(width: 8),
                 OutlinedButton.icon(
@@ -211,7 +220,8 @@ class _UserProfileViewState extends State<UserProfileView> {
                   label: Text(profile.isBlocked ? 'Unblock' : 'Block'),
                   style: OutlinedButton.styleFrom(
                     visualDensity: VisualDensity.compact,
-                    foregroundColor: profile.isBlocked ? null : theme.colorScheme.error,
+                    foregroundColor:
+                        profile.isBlocked ? null : theme.colorScheme.error,
                   ),
                 ),
               ],
@@ -224,7 +234,8 @@ class _UserProfileViewState extends State<UserProfileView> {
 
   /// Admin popup for a first-step warning, sent to the traveller's
   /// private mailbox before any blocking happens.
-  Future<void> _showWarnDialog(BuildContext context, UserProfile profile) async {
+  Future<void> _showWarnDialog(
+      BuildContext context, UserProfile profile) async {
     final controller = TextEditingController(
       text: 'This is a warning from the World Traveller team: some of your '
           'content does not respect our terms of use. Please review it, or '
@@ -280,13 +291,16 @@ class _UserProfileViewState extends State<UserProfileView> {
   /// Admin popup to block (or unblock) an account. A blocked traveller
   /// can no longer sign in, but their existing content stays visible —
   /// this is about stopping further activity, not erasing the past.
-  Future<void> _showBlockDialog(BuildContext context, UserProfile profile) async {
+  Future<void> _showBlockDialog(
+      BuildContext context, UserProfile profile) async {
     final willBlock = !profile.isBlocked;
 
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: Text(willBlock ? 'Block ${profile.firstName}?' : 'Unblock ${profile.firstName}?'),
+        title: Text(willBlock
+            ? 'Block ${profile.firstName}?'
+            : 'Unblock ${profile.firstName}?'),
         content: Text(
           willBlock
               ? '${profile.firstName} will no longer be able to sign in, '
@@ -300,7 +314,9 @@ class _UserProfileViewState extends State<UserProfileView> {
             child: const Text('Cancel'),
           ),
           FilledButton(
-            style: willBlock ? FilledButton.styleFrom(backgroundColor: Colors.red) : null,
+            style: willBlock
+                ? FilledButton.styleFrom(backgroundColor: Colors.red)
+                : null,
             onPressed: () => Navigator.pop(dialogContext, true),
             child: Text(willBlock ? 'Block' : 'Unblock'),
           ),
@@ -311,7 +327,9 @@ class _UserProfileViewState extends State<UserProfileView> {
     if (confirmed != true || !context.mounted) return;
 
     try {
-      await context.read<SocialController>().setUserBlocked(profile.id, willBlock);
+      await context
+          .read<SocialController>()
+          .setUserBlocked(profile.id, willBlock);
       if (!context.mounted) return;
       setState(() {
         _profile = UserProfile(
@@ -330,7 +348,9 @@ class _UserProfileViewState extends State<UserProfileView> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            willBlock ? '${profile.firstName} has been blocked.' : '${profile.firstName} has been unblocked.',
+            willBlock
+                ? '${profile.firstName} has been blocked.'
+                : '${profile.firstName} has been unblocked.',
           ),
         ),
       );
@@ -345,12 +365,15 @@ class _UserProfileViewState extends State<UserProfileView> {
 
 /// "Contact" popup (Phase 4 — Privacy e Sicurezza).
 ///
-/// Email addresses are hidden by default and are never shown here, or
-/// anywhere else, for another traveller's profile. Instead this asks a
-/// simple yes/no question; a "yes" drops a notification into the other
-/// traveller's own private mailbox ("buchetta della posta") — they
-/// decide from there whether and how to get back in touch.
-Future<void> showContactDialog(BuildContext context, UserProfile profile) async {
+/// Checks the CURRENT state of the relationship before doing anything,
+/// so the user can never spam the same person with duplicate requests:
+///
+///  * never contacted  → normal "do you want to ask?" dialog
+///  * already sent     → informative popup ("request already pending")
+///  * they contacted me first → point them to the Mailbox
+///  * already accepted → show the shared email straight away, with Copy
+Future<void> showContactDialog(
+    BuildContext context, UserProfile profile) async {
   final theme = Theme.of(context);
 
   if (!await ensureLoggedIn(context)) return;
@@ -359,11 +382,66 @@ Future<void> showContactDialog(BuildContext context, UserProfile profile) async 
   final social = context.read<SocialController>();
   if (social.myProfile?.id == profile.id) {
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text("You can't send a request to yourself.")),
+      const SnackBar(
+          content: Text("You can't send a request to yourself.")),
     );
     return;
   }
 
+  // Look up the existing relationship BEFORE opening any dialog.
+  final status = await social.contactStatusWith(profile.id);
+  if (!context.mounted) return;
+
+  // --- Case 1: already accepted. Show the shared email and stop here.
+  if (status?.status == 'accepted') {
+    await _showAcceptedEmailDialog(context, profile, status?.email);
+    return;
+  }
+
+  // --- Case 2: I already sent a pending request.
+  if (status?.status == 'sent') {
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('Request already sent to ${profile.firstName}'),
+        content: const Text(
+          'You already asked this traveller to get in touch.\n\n'
+          'You will get a notification in your Mailbox when they reply.\n\n'
+          'You cannot send more than one request at a time.',
+        ),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Got it'),
+          ),
+        ],
+      ),
+    );
+    return;
+  }
+
+  // --- Case 3: they already contacted me, I have not replied yet.
+  if (status?.status == 'received') {
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('${profile.firstName} already contacted you'),
+        content: const Text(
+          'This traveller has already sent you a contact request. '
+          'Open your Mailbox to accept or decline it.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+    return;
+  }
+
+  // --- Case 4: never contacted each other. Show the send dialog.
   final confirmed = await showDialog<bool>(
     context: context,
     builder: (dialogContext) => Dialog(
@@ -381,11 +459,12 @@ Future<void> showContactDialog(BuildContext context, UserProfile profile) async 
                   CircleAvatar(
                     radius: 22,
                     backgroundColor: theme.colorScheme.primaryContainer,
-                    backgroundImage:
-                        (profile.avatarUrl != null && profile.avatarUrl!.isNotEmpty)
-                            ? NetworkImage(profile.avatarUrl!)
-                            : null,
-                    child: (profile.avatarUrl == null || profile.avatarUrl!.isEmpty)
+                    backgroundImage: (profile.avatarUrl != null &&
+                            profile.avatarUrl!.isNotEmpty)
+                        ? NetworkImage(profile.avatarUrl!)
+                        : null,
+                    child: (profile.avatarUrl == null ||
+                            profile.avatarUrl!.isEmpty)
                         ? Text(
                             profile.initial,
                             style: TextStyle(
@@ -416,13 +495,15 @@ Future<void> showContactDialog(BuildContext context, UserProfile profile) async 
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Icon(Icons.lock_outline, size: 18, color: theme.colorScheme.primary),
+                  Icon(Icons.lock_outline,
+                      size: 18, color: theme.colorScheme.primary),
                   const SizedBox(width: 10),
                   Expanded(
                     child: Text(
                       'For privacy, email addresses are never shown on '
                       'World Traveller.',
-                      style: TextStyle(color: Colors.grey.shade600, fontSize: 12.5),
+                      style: TextStyle(
+                          color: Colors.grey.shade600, fontSize: 12.5),
                     ),
                   ),
                 ],
@@ -436,7 +517,8 @@ Future<void> showContactDialog(BuildContext context, UserProfile profile) async 
               Text(
                 "They'll get a private notification in their mailbox — "
                 'nothing is shared with anyone else.',
-                style: TextStyle(color: Colors.grey.shade600, fontSize: 12.5),
+                style:
+                    TextStyle(color: Colors.grey.shade600, fontSize: 12.5),
               ),
               const SizedBox(height: 22),
               Row(
@@ -469,7 +551,9 @@ Future<void> showContactDialog(BuildContext context, UserProfile profile) async 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          sent ? 'Request sent to ${profile.firstName}.' : 'Could not send the request.',
+          sent
+              ? 'Request sent to ${profile.firstName}.'
+              : 'Could not send the request.',
         ),
       ),
     );
@@ -479,4 +563,135 @@ Future<void> showContactDialog(BuildContext context, UserProfile profile) async 
       SnackBar(content: Text('Could not send the request: $e')),
     );
   }
+}
+
+/// Popup shown when the contact has already been accepted. Displays the
+/// shared email address with a Copy button. If the accepter chose not to
+/// share an address, explains that politely instead of leaving a blank.
+Future<void> _showAcceptedEmailDialog(
+  BuildContext context,
+  UserProfile profile,
+  String? email,
+) async {
+  final theme = Theme.of(context);
+  final hasEmail = email != null && email.trim().isNotEmpty;
+
+  await showDialog<void>(
+    context: context,
+    builder: (dialogContext) => Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 400),
+        child: Padding(
+          padding: const EdgeInsets.all(26),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  CircleAvatar(
+                    radius: 22,
+                    backgroundColor: theme.colorScheme.tertiaryContainer,
+                    child: Icon(Icons.check_circle_outline,
+                        color: theme.colorScheme.onTertiaryContainer),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Text(
+                      'You can contact ${profile.firstName}!',
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Close',
+                    icon: const Icon(Icons.close),
+                    onPressed: () => Navigator.of(dialogContext).pop(),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 18),
+              if (hasEmail) ...[
+                Text(
+                  "Here is ${profile.firstName}'s email:",
+                  style:
+                      TextStyle(color: Colors.grey.shade600, fontSize: 13),
+                ),
+                const SizedBox(height: 10),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 14, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.tertiaryContainer
+                        .withValues(alpha: 0.5),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.alternate_email,
+                          size: 18,
+                          color: theme.colorScheme.onTertiaryContainer),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: SelectableText(
+                          email,
+                          style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            color: theme.colorScheme.onTertiaryContainer,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 18),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    TextButton(
+                      onPressed: () => Navigator.of(dialogContext).pop(),
+                      child: const Text('Close'),
+                    ),
+                    const SizedBox(width: 8),
+                    FilledButton.icon(
+                      icon: const Icon(Icons.copy, size: 16),
+                      label: const Text('Copy'),
+                      onPressed: () async {
+                        final messenger = ScaffoldMessenger.of(context);
+                        await Clipboard.setData(ClipboardData(text: email));
+                        if (dialogContext.mounted) {
+                          Navigator.of(dialogContext).pop();
+                        }
+                        messenger.showSnackBar(
+                          const SnackBar(content: Text('Email copied')),
+                        );
+                      },
+                    ),
+                  ],
+                ),
+              ] else ...[
+                const Text(
+                  'This traveller accepted your request, but did not share '
+                  'an email address. You can try reaching out through their '
+                  'profile.',
+                ),
+                const SizedBox(height: 18),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: FilledButton(
+                    onPressed: () => Navigator.of(dialogContext).pop(),
+                    child: const Text('Got it'),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
 }

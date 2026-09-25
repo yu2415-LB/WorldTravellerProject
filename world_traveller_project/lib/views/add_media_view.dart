@@ -13,6 +13,8 @@ import 'package:world_traveller_project/services/geocoding_service.dart';
 import 'package:world_traveller_project/services/image_validation_service.dart';
 import 'package:world_traveller_project/services/moderation_service.dart';
 import 'package:world_traveller_project/views/edit_media_view.dart';
+// ignore: unused_import
+import 'package:world_traveller_project/services/local_media_service.dart';
 
 class _PickedFileItem {
   final XFile file;
@@ -74,6 +76,10 @@ class _AddMediaViewState extends State<AddMediaView> {
   LatLng? _pickedPosition;
   bool _saving = false;
   int _step = 0;
+
+  /// When true, the new pictures are saved only on this machine and
+  /// never uploaded to Supabase. Only shown on desktop / mobile.
+  bool _saveLocalOnly = false;
 
   // Place autocomplete (cities, regions, countries)
   Timer? _debounce;
@@ -376,6 +382,7 @@ class _AddMediaViewState extends State<AddMediaView> {
           fileName: item.fileName,
           rawBytes: item.bytes,
           type: MediaType.image,
+          localOnly: _saveLocalOnly,
         );
         items.add(media);
 
@@ -880,6 +887,63 @@ class _AddMediaViewState extends State<AddMediaView> {
               'story and tags of each picture.',
               style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
             ),
+
+            // Desktop / mobile only: let the user keep pictures off the
+            // cloud entirely. Hidden on the web (nowhere to store them).
+            if (LocalMediaService.instance.isAvailable) ...[
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Theme.of(context)
+                      .colorScheme
+                      .surfaceContainerHighest
+                      .withValues(alpha: 0.5),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.computer,
+                      size: 20,
+                      color: _saveLocalOnly
+                          ? Theme.of(context).colorScheme.primary
+                          : Colors.grey.shade600,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Tieni solo su questo computer',
+                            style: TextStyle(fontWeight: FontWeight.w600),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            _saveLocalOnly
+                                ? 'Le foto NON andranno sul cloud. Solo tu, '
+                                    'solo su questo PC.'
+                                : 'Spostale sul cloud per condividerle con gli '
+                                    'altri viaggiatori.',
+                            style: TextStyle(
+                              fontSize: 11.5,
+                              color: Colors.grey.shade600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Switch(
+                      value: _saveLocalOnly,
+                      onChanged: _saving
+                          ? null
+                          : (v) => setState(() => _saveLocalOnly = v),
+                    ),
+                  ],
+                ),
+              ),
+            ],
             const Spacer(),
             TextButton.icon(
               onPressed: _saving ? null : () => setState(() => _step = 0),

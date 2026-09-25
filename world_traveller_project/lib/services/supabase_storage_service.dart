@@ -8,9 +8,11 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 import 'package:world_traveller_project/models/location.dart';
 import 'package:world_traveller_project/models/media.dart';
+import 'package:world_traveller_project/services/local_media_service.dart';
 
 class SupabaseStorageService {
-  static final SupabaseStorageService _instance = SupabaseStorageService._internal();
+  static final SupabaseStorageService _instance =
+      SupabaseStorageService._internal();
   factory SupabaseStorageService() => _instance;
   SupabaseStorageService._internal();
 
@@ -27,12 +29,10 @@ class SupabaseStorageService {
   Future<Uint8List> prepareImageBytes(Uint8List rawBytes, String fileName) async {
     final ext = p.extension(fileName).replaceFirst('.', '').toLowerCase();
 
-    // Formats that browsers and Flutter Web cannot display natively.
     if (ext == 'tif' || ext == 'tiff') {
       try {
         final decoded = img.decodeTiff(rawBytes) ?? img.decodeImage(rawBytes);
         if (decoded != null) {
-          // Shrink very large pictures to save bandwidth and memory.
           img.Image target = decoded;
           if (target.width > 2400 || target.height > 2400) {
             target = img.copyResize(
@@ -62,20 +62,13 @@ class SupabaseStorageService {
     final userId = currentUser?.id ?? 'anonymous';
     final fileExt = p.extension(fileName).toLowerCase();
     final uniqueId = const Uuid().v4().substring(0, 8);
-    final cleanName = p.basenameWithoutExtension(fileName).replaceAll(RegExp(r'[^a-zA-Z0-9_\-]'), '_');
+    final cleanName = p
+        .basenameWithoutExtension(fileName)
+        .replaceAll(RegExp(r'[^a-zA-Z0-9_\-]'), '_');
     final storagePath = '$userId/$locationId/${cleanName}_$uniqueId$fileExt';
 
-    // Work out the right MIME type.
     final mimeType = lookupMimeType(fileName) ?? 'image/jpeg';
 
-    // No silent fallback here on purpose: an upload that silently "succeeds"
-    // with a throwaway base64 URL saves a `storage_path` in the database
-    // that points at a file which was never actually written to Storage.
-    // The picture looks fine for the rest of this session, then shows up
-    // broken forever for everyone else (and even for you, next time you
-    // reload). Throwing lets the screen that called this show the real
-    // reason ("bucket not found", a policy rejecting the path, a network
-    // error, ...) instead of a picture nobody can actually see again.
     await _client.storage.from(_bucketName).uploadBinary(
       storagePath,
       bytes,
@@ -85,23 +78,20 @@ class SupabaseStorageService {
       ),
     );
 
-    final publicUrl = _client.storage.from(_bucketName).getPublicUrl(storagePath);
+    final publicUrl =
+        _client.storage.from(_bucketName).getPublicUrl(storagePath);
     return (storagePath: storagePath, publicUrl: publicUrl);
   }
 
   /// Uploads a new profile picture and returns its public URL.
-  /// Used by "My Account" (Phase 2) to let a traveller change their photo.
   Future<String> uploadAvatar({
     required String userId,
     required Uint8List bytes,
     required String fileName,
   }) async {
-    final fileExt = p.extension(fileName).isEmpty ? '.jpg' : p.extension(fileName).toLowerCase();
-    // The storage policy only allows a user to write under a path whose
-    // FIRST folder is their own id ((storage.foldername(name))[1] =
-    // auth.uid()). The old "avatars/<id>.jpg" path put "avatars" first
-    // instead, so every upload was rejected with a 403. "<id>/avatar.jpg"
-    // matches the same rule pictures already use.
+    final fileExt = p.extension(fileName).isEmpty
+        ? '.jpg'
+        : p.extension(fileName).toLowerCase();
     final storagePath = '$userId/avatar$fileExt';
     final mimeType = lookupMimeType(fileName) ?? 'image/jpeg';
 
@@ -110,13 +100,11 @@ class SupabaseStorageService {
           bytes,
           fileOptions: FileOptions(contentType: mimeType, upsert: true),
         );
-    // Cache-bust so the new picture shows up immediately everywhere.
     return '${_client.storage.from(_bucketName).getPublicUrl(storagePath)}?t=${DateTime.now().millisecondsSinceEpoch}';
   }
 
   /// Loads every place from Supabase, falling back to the local cache.
   Future<List<Location>> loadLocations() async {
-    // 1. Try loading from the Supabase database.
     try {
       final List<dynamic> locRows = await _client
           .from('locations')
@@ -133,13 +121,16 @@ class SupabaseStorageService {
         final row = Map<String, dynamic>.from(rawMedia as Map);
         final locId = row['location_id']?.toString() ?? '';
         final storagePath = row['storage_path']?.toString() ?? '';
-        
+
         String? publicUrl;
         if (storagePath.isNotEmpty) {
-          if (storagePath.startsWith('http://') || storagePath.startsWith('https://') || storagePath.startsWith('data:')) {
+          if (storagePath.startsWith('http://') ||
+              storagePath.startsWith('https://') ||
+              storagePath.startsWith('data:')) {
             publicUrl = storagePath;
           } else {
-            publicUrl = _client.storage.from(_bucketName).getPublicUrl(storagePath);
+            publicUrl =
+                _client.storage.from(_bucketName).getPublicUrl(storagePath);
           }
         }
 
@@ -155,20 +146,66 @@ class SupabaseStorageService {
         locations.add(Location.fromSupabase(locRow, mediaList));
       }
 
-      // Keep a local copy for speed and offline use.
+      // Merge in the local-only pictures we hold on this machine, so
+      // they appear alongside the cloud ones in the app.
+      final localOnly = await _loadLocalOnlyMediaFromCache();
+      for (final loc in locations) {
+        final locals = localOnly[loc.id];
+        if (locals == null) continue;
+        for (final m in locals) {
+          loc.addMedia(m);
+        }
+      }
+
       await _saveLocationsToLocalCache(locations);
       return locations;
     } catch (dbError) {
-      debugPrint('Could not load from Supabase ($dbError), using the local cache...');
+      debugPrint(
+          'Could not load from Supabase ($dbError), using the local cache...');
       return await _loadLocationsFromLocalCache();
     }
   }
 
-  /// Saves or updates a single place in Supabase. Throws on failure —
-  /// this used to swallow the error and quietly write only to the local
-  /// on-device cache, which is exactly why a picture added on one
-  /// device never showed up on another: it never actually reached
-  /// Supabase, but nothing ever told you that.
+  /// Reads the "local-only" pictures we previously saved on this machine,
+  /// grouped by their parent location id, and preloads their bytes so
+  /// the UI can show them straight away. Never throws.
+  Future<Map<String, List<Media>>> _loadLocalOnlyMediaFromCache() async {
+    final result = <String, List<Media>>{};
+    if (!LocalMediaService.instance.isAvailable) return result;
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_localCacheKey);
+      if (raw == null || raw.trim().isEmpty) return result;
+
+      final decoded = jsonDecode(raw) as List<dynamic>;
+      for (final item in decoded) {
+        final locJson = item as Map<String, dynamic>;
+        final locId = locJson['id']?.toString() ?? '';
+        final mediaJson = (locJson['media'] as List?) ?? [];
+
+        for (final rawMedia in mediaJson) {
+          final row = rawMedia as Map<String, dynamic>;
+          if (row['isLocalOnly'] != true) continue;
+
+          final media = Media.fromJson(row);
+          // Preload the bytes from disk so widgets can just use
+          // media.memoryBytes without an async round trip.
+          final bytes =
+              await LocalMediaService.instance.load(media.localPath ?? '');
+          media.memoryBytes = bytes;
+          result.putIfAbsent(locId, () => []).add(media);
+        }
+      }
+    } catch (e) {
+      debugPrint('Could not read local-only pictures from cache: $e');
+    }
+
+    return result;
+  }
+
+  /// Saves or updates a single place in Supabase, skipping any
+  /// "local-only" picture the user chose to keep off the cloud.
   Future<void> saveLocation(Location location) async {
     final user = _client.auth.currentUser;
     final userId = user?.id;
@@ -178,14 +215,15 @@ class SupabaseStorageService {
 
     await _client.from('locations').upsert(location.toSupabase(userId));
 
-    // Upsert the pictures that belong to it.
+    // Upsert only the CLOUD pictures that belong to it. Local-only ones
+    // live on disk and must never touch Supabase Storage or the DB.
     for (final media in location.mediaSet) {
-      await _client.from('media_items').upsert(media.toSupabase(location.id, userId));
+      if (media.isLocalOnly) continue;
+      await _client
+          .from('media_items')
+          .upsert(media.toSupabase(location.id, userId));
     }
 
-    // Only now that Supabase actually has it do we refresh the local
-    // cache — the cache is a copy of what's confirmed saved, never a
-    // silent substitute for it.
     final currentList = await _loadLocationsFromLocalCache();
     final idx = currentList.indexWhere((l) => l.id == location.id);
     if (idx != -1) {
@@ -196,8 +234,7 @@ class SupabaseStorageService {
     await _saveLocationsToLocalCache(currentList);
   }
 
-  /// Saves the whole list of places. Throws on the first failure — see
-  /// [saveLocation] for why silently continuing is the wrong call here.
+  /// Saves the whole list of places, skipping local-only pictures.
   Future<void> saveLocations(List<Location> locations) async {
     final user = _client.auth.currentUser;
     final userId = user?.id;
@@ -208,32 +245,37 @@ class SupabaseStorageService {
     for (final loc in locations) {
       await _client.from('locations').upsert(loc.toSupabase(userId));
       for (final m in loc.mediaSet) {
-        await _client.from('media_items').upsert(m.toSupabase(loc.id, userId));
+        if (m.isLocalOnly) continue;
+        await _client
+            .from('media_items')
+            .upsert(m.toSupabase(loc.id, userId));
       }
     }
 
     await _saveLocationsToLocalCache(locations);
   }
 
-  /// Deletes a place and every picture in it. Throws on failure instead
-  /// of pretending it worked while only removing it from the local
-  /// cache — a "successful" delete that only hides the pin on your own
-  /// device, but leaves it live for everyone else, is worse than an
-  /// error message.
+  /// Deletes a place, its cloud pictures, AND any local-only files it
+  /// was holding on this machine.
   Future<void> deleteLocation(Location location) async {
-    // Remove the files from storage first; if this fails we still try
-    // the database row below, but we don't hide the failure either way.
-    final filesToDelete = location.mediaSet
+    final cloudPaths = location.mediaSet
+        .where((m) => !m.isLocalOnly)
         .map((m) => m.filePath)
-        .where((p) => p.isNotEmpty && !p.startsWith('http') && !p.startsWith('data:'))
+        .where((p) =>
+            p.isNotEmpty && !p.startsWith('http') && !p.startsWith('data:'))
         .toList();
 
-    if (filesToDelete.isNotEmpty) {
+    if (cloudPaths.isNotEmpty) {
       try {
-        await _client.storage.from(_bucketName).remove(filesToDelete);
+        await _client.storage.from(_bucketName).remove(cloudPaths);
       } catch (e) {
         debugPrint('Could not remove some files from Storage: $e');
       }
+    }
+
+    // Local-only files are ours to delete from disk.
+    for (final m in location.mediaSet.where((m) => m.isLocalOnly)) {
+      await LocalMediaService.instance.delete(m.localPath ?? '');
     }
 
     await _client.from('locations').delete().eq('id', location.id);
@@ -243,16 +285,22 @@ class SupabaseStorageService {
     await _saveLocationsToLocalCache(currentList);
   }
 
-  /// Deletes a single picture. Throws on failure — see [deleteLocation].
+  /// Deletes a single picture: from Storage if cloud, from disk if local.
   Future<void> deleteMedia(Media media, Location location) async {
-    if (media.filePath.isNotEmpty && !media.filePath.startsWith('http') && !media.filePath.startsWith('data:')) {
-      try {
-        await _client.storage.from(_bucketName).remove([media.filePath]);
-      } catch (e) {
-        debugPrint('Could not remove the file from Storage: $e');
+    if (media.isLocalOnly) {
+      await LocalMediaService.instance.delete(media.localPath ?? '');
+    } else {
+      if (media.filePath.isNotEmpty &&
+          !media.filePath.startsWith('http') &&
+          !media.filePath.startsWith('data:')) {
+        try {
+          await _client.storage.from(_bucketName).remove([media.filePath]);
+        } catch (e) {
+          debugPrint('Could not remove the file from Storage: $e');
+        }
       }
+      await _client.from('media_items').delete().eq('id', media.id);
     }
-    await _client.from('media_items').delete().eq('id', media.id);
 
     location.removeMedia(media);
     await saveLocation(location);
@@ -277,11 +325,27 @@ class SupabaseStorageService {
       if (raw == null || raw.trim().isEmpty) return [];
 
       final decoded = jsonDecode(raw) as List<dynamic>;
-      return decoded.map((item) => Location.fromJson(item as Map<String, dynamic>)).toList();
+      final locations = decoded
+          .map((item) => Location.fromJson(item as Map<String, dynamic>))
+          .toList();
+
+      // Preload local-only bytes so the widgets can show them without
+      // an async hop. Missing files are silently skipped.
+      if (LocalMediaService.instance.isAvailable) {
+        for (final loc in locations) {
+          for (final m in loc.mediaSet) {
+            if (m.isLocalOnly && (m.memoryBytes == null || m.memoryBytes!.isEmpty)) {
+              m.memoryBytes =
+                  await LocalMediaService.instance.load(m.localPath ?? '');
+            }
+          }
+        }
+      }
+
+      return locations;
     } catch (e) {
       debugPrint('Could not read the local cache: $e');
       return [];
     }
   }
 }
-

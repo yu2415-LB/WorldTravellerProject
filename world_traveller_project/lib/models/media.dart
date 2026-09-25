@@ -4,12 +4,12 @@ import 'package:path_provider/path_provider.dart';
 import 'package:uuid/uuid.dart';
 import 'package:world_traveller_project/enums/media_visibility.dart';
 
-/// The app only deals with pictures now. The enum is kept so that rows
-/// saved by older versions of the app (which could also store videos)
-/// still load without crashing.
+/// The app only deals with pictures now. This enum is kept as a single
+/// value so that rows written by older versions of the app (which could
+/// also store a "type" column) still load without a migration step —
+/// we simply ignore that column's value going forward.
 enum MediaType {
   image,
-  unknown,
 }
 
 class Media {
@@ -65,6 +65,15 @@ class Media {
   /// in at runtime so that the picture can show who posted it.
   String? ownerDisplayName;
 
+  /// True for pictures stored only on the user's own computer. They
+  /// never reach Supabase Storage and are visible only on the machine
+  /// where they were added. See [localPath] for where they live.
+  final bool isLocalOnly;
+
+  /// When [isLocalOnly] is true, the path to the file on disk, relative
+  /// to the app documents directory. Null for cloud pictures.
+  String? localPath;
+
   static const List<String> emotionLabels = [
     '\u2728 Inspired',
     '\u{1F30A} Relaxed',
@@ -95,6 +104,8 @@ class Media {
     this.category,
     this.userId,
     this.ownerDisplayName,
+    this.isLocalOnly = false,
+    this.localPath,
   }) : id = id ?? const Uuid().v4();
 
   @override
@@ -113,15 +124,18 @@ class Media {
   }
 
   /// The mood text to show, or null when none was ever picked.
-  String? get emotionLabel => (mood != null && mood!.trim().isNotEmpty) ? mood : null;
+  String? get emotionLabel =>
+      (mood != null && mood!.trim().isNotEmpty) ? mood : null;
 
   /// True when [mood] is one of the five preset feelings rather than
   /// something the person typed in after choosing "Other...".
   bool get isStandardMood => mood != null && standardMoods.contains(mood);
 
-  /// URL to feed into Image.network.
-  /// Returns remoteUrl when set, or filePath when it already is a http(s) URL.
+  /// URL to feed into Image.network. Local-only pictures have no cloud
+  /// URL, so this returns null for them — the widget layer falls back to
+  /// [memoryBytes], which the controller preloads from disk.
   String? get publicUrl {
+    if (isLocalOnly) return null;
     if (remoteUrl != null && remoteUrl!.isNotEmpty) return remoteUrl;
     if (filePath.startsWith('http://') || filePath.startsWith('https://')) {
       return filePath;
@@ -161,6 +175,8 @@ class Media {
       'category': category?.toDb,
       'userId': userId,
       'ownerDisplayName': ownerDisplayName,
+      'isLocalOnly': isLocalOnly,
+      'localPath': localPath,
     };
   }
 
@@ -174,9 +190,12 @@ class Media {
       fileName: json['name'] as String? ?? 'Memory',
       title: json['title'] as String?,
       lastModification: json['lastModification'] != null
-          ? DateTime.tryParse(json['lastModification'] as String) ?? DateTime.now()
+          ? DateTime.tryParse(json['lastModification'] as String) ??
+              DateTime.now()
           : DateTime.now(),
-      tags: json['tags'] != null ? List<String>.from(json['tags'] as List) : <String>[],
+      tags: json['tags'] != null
+          ? List<String>.from(json['tags'] as List)
+          : <String>[],
       storyNote: json['storyNote'] as String?,
       remoteUrl: json['remoteUrl'] as String?,
       travelDate: json['travelDate'] != null
@@ -186,6 +205,8 @@ class Media {
       category: MediaCategory.fromDb(json['category'] as String?),
       userId: json['userId'] as String?,
       ownerDisplayName: json['ownerDisplayName'] as String?,
+      isLocalOnly: json['isLocalOnly'] as bool? ?? false,
+      localPath: json['localPath'] as String?,
     );
   }
 
@@ -199,9 +220,12 @@ class Media {
       fileName: row['file_name'] as String? ?? 'Memory',
       title: row['title'] as String?,
       lastModification: row['last_modification'] != null
-          ? DateTime.tryParse(row['last_modification'] as String) ?? DateTime.now()
+          ? DateTime.tryParse(row['last_modification'] as String) ??
+              DateTime.now()
           : DateTime.now(),
-      tags: row['tags'] != null ? List<String>.from(row['tags'] as List) : <String>[],
+      tags: row['tags'] != null
+          ? List<String>.from(row['tags'] as List)
+          : <String>[],
       storyNote: row['story_note'] as String?,
       remoteUrl: publicUrl,
       travelDate: row['travel_date'] != null
@@ -210,6 +234,8 @@ class Media {
       visibility: MediaVisibility.fromDb(row['visibility'] as String?),
       category: MediaCategory.fromDb(row['category'] as String?),
       userId: row['user_id'] as String?,
+      // Rows coming from Supabase are never local-only by definition.
+      isLocalOnly: false,
     );
   }
 
@@ -243,7 +269,8 @@ class Media {
       'tags': tags,
       'story_note': storyNote,
       'last_modification': lastModification.toIso8601String(),
-      'travel_date': (travelDate ?? lastModification).toIso8601String().split('T').first,
+      'travel_date':
+          (travelDate ?? lastModification).toIso8601String().split('T').first,
       'visibility': visibility.toDb,
       'category': category?.toDb,
     };

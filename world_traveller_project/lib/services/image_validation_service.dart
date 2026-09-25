@@ -42,7 +42,7 @@ class ImageValidationService {
   static final ImageValidationService instance = ImageValidationService._();
 
   static const int maxLongSide = 2048;
-  static const int maxFileBytes = 30 * 1024 * 1024;
+  static const int maxFileBytes = 15 * 1024 * 1024;
 
   Future<PreparedImage> prepare(Uint8List raw, String fileName) async {
     final ext = p.extension(fileName).replaceFirst('.', '').toLowerCase();

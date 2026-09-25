@@ -79,9 +79,12 @@ class _MyMemoriesViewState extends State<MyMemoriesView> {
                       icon: const Icon(Icons.login),
                       label: const Text('Sign in'),
                       onPressed: () async {
+                        // Capture the controller BEFORE awaiting anything,
+                        // so `context` is never used across an async gap.
+                        final social = context.read<SocialController>();
                         await ensureLoggedIn(context);
                         if (!mounted) return;
-                        await context.read<SocialController>().refreshForCurrentUser();
+                        await social.refreshForCurrentUser();
                         if (mounted) setState(() {});
                       },
                     ),
